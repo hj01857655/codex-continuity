@@ -264,6 +264,90 @@ function codexContinuityNoteUpdateApply(runtime, args = {}) {
   };
 }
 
+function codexContinuityWriteAdHocNote(runtime, args = {}) {
+  const title = String(args.title || 'Codex continuity note').trim();
+  const content = String(args.content || '').trimEnd();
+  if (!content) {
+    throw new Error('`content` is required');
+  }
+
+  const timestamp = String(args.timestamp || new Date().toISOString()).trim();
+  const safeTimestamp = timestamp.replace(/[:.]/g, '-');
+  const fileSlug = slugify(args.slug || title);
+  const notesDir = path.join(runtime.memoriesRoot, 'extensions', 'ad_hoc', 'notes');
+  fs.mkdirSync(notesDir, { recursive: true });
+
+  let relativePath = `extensions/ad_hoc/notes/${safeTimestamp}-${fileSlug}.md`;
+  let fullPath = path.join(runtime.memoriesRoot, relativePath);
+  let counter = 2;
+  while (safeStat(fullPath)?.isFile()) {
+    relativePath = `extensions/ad_hoc/notes/${safeTimestamp}-${fileSlug}-${counter}.md`;
+    fullPath = path.join(runtime.memoriesRoot, relativePath);
+    counter += 1;
+  }
+
+  const finalContent = content.endsWith('\n') ? content : `${content}\n`;
+  fs.writeFileSync(fullPath, finalContent, 'utf8');
+  return {
+    path: relativePath,
+    action: 'created_ad_hoc_note',
+    title,
+    content: finalContent,
+  };
+}
+
+function codexContinuitySettleAdHocNote(runtime, args = {}) {
+  const title = String(args.title || 'Codex continuity note').trim();
+  const content = String(args.content || '').trim();
+  if (!content) {
+    throw new Error('`content` is required');
+  }
+  const cwd = String(args.cwd || '').trim();
+  const paths = normalizePaths(args.paths || []);
+  const heading = String(args.heading || 'Update').trim() || 'Update';
+  const timestamp = String(args.timestamp || new Date().toISOString()).trim();
+  const overlap = codexContinuityOverlap(runtime, {
+    content,
+    cwd,
+    paths,
+    limit: Number(args.limit) || 5,
+  });
+  const recommendation = overlap.recommendation || {};
+  const primaryMatch = recommendation.primaryMatch || null;
+
+  if (recommendation.action === 'update_existing' && primaryMatch?.path?.startsWith('extensions/ad_hoc/notes/')) {
+    const draft = codexContinuityNoteUpdateDraft(runtime, {
+      path: primaryMatch.path,
+      content,
+      heading,
+      timestamp,
+    });
+    const applied = codexContinuityNoteUpdateApply(runtime, {
+      path: draft.targetPath,
+      updatedContent: draft.updatedContent,
+      expectedHash: draft.expectedHash,
+    });
+    return {
+      action: 'updated_existing_note',
+      overlap,
+      draft,
+      applied,
+    };
+  }
+
+  const note = codexContinuityWriteAdHocNote(runtime, {
+    title,
+    content,
+    slug: args.slug,
+    timestamp,
+  });
+  return {
+    action: 'created_ad_hoc_note',
+    overlap,
+    note,
+  };
+}
+
 function codexContinuityReadNote(runtime, args) {
   const notePath = String(args?.path || '').trim().replace(/\\/g, '/');
   if (!notePath) {
@@ -420,6 +504,40 @@ function createToolRegistry(runtime) {
       },
       run: (args) => codexContinuitySessionSearch(runtime, args),
     },
+    codex_continuity_ad_hoc_note_write: {
+      description: 'Write a new structured ad-hoc memory note under ~/.codex/memories/extensions/ad_hoc/notes/.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Note title.' },
+          content: { type: 'string', description: 'Full Markdown content to write.' },
+          slug: { type: 'string', description: 'Optional filename slug.' },
+          timestamp: { type: 'string', description: 'Optional timestamp for deterministic filenames.' },
+        },
+        required: ['content'],
+        additionalProperties: false,
+      },
+      run: (args) => codexContinuityWriteAdHocNote(runtime, args),
+    },
+    codex_continuity_note_settle: {
+      description: 'Settle a completed session outcome into ad-hoc memory by updating a close note or creating a new one.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Candidate note title.' },
+          content: { type: 'string', description: 'New durable outcome/delta to persist.' },
+          cwd: { type: 'string', description: 'Optional current repo or cwd path.' },
+          paths: { type: 'array', items: { type: 'string' }, description: 'Related paths for overlap detection.' },
+          heading: { type: 'string', description: 'Heading used when updating an existing note.' },
+          slug: { type: 'string', description: 'Optional filename slug for new notes.' },
+          timestamp: { type: 'string', description: 'Optional timestamp for deterministic filenames.' },
+          limit: { type: 'number', description: 'Max overlap hits to inspect.' },
+        },
+        required: ['content'],
+        additionalProperties: false,
+      },
+      run: (args) => codexContinuitySettleAdHocNote(runtime, args),
+    },
     codex_continuity_note_update_apply: {
       description: 'Apply a reviewed update to an existing ad-hoc memory note with hash-based conflict protection.',
       inputSchema: {
@@ -519,6 +637,8 @@ function createToolRegistry(runtime) {
 
 module.exports = {
   createToolRegistry,
+  codexContinuitySettleAdHocNote,
+  codexContinuityWriteAdHocNote,
   codexContinuityNoteUpdateApply,
   codexContinuityNoteUpdateDraft,
   codexContinuityIndexStatus,

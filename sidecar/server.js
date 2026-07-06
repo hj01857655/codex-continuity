@@ -13,6 +13,8 @@ const { codexContinuitySessionContext, codexContinuitySessionDigest, codexContin
 const { queryDocuments } = require('./scoring');
 const {
   createToolRegistry,
+  codexContinuitySettleAdHocNote,
+  codexContinuityWriteAdHocNote,
   codexContinuityNoteUpdateApply,
   codexContinuityNoteUpdateDraft,
   codexContinuitySessionNoteDraft,
@@ -154,6 +156,8 @@ module.exports = {
   createRuntime,
   findOverlapHits,
   handleMessage,
+  codexContinuitySettleAdHocNote,
+  codexContinuityWriteAdHocNote,
   codexContinuityNoteUpdateApply,
   codexContinuityNoteUpdateDraft,
   codexContinuityOverlap,

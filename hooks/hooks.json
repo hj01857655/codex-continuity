@@ -1,6 +1,18 @@
 {
-  "description": "Read-only prior-session context loading for Codex Continuity.",
+  "description": "Codex Continuity lifecycle hooks for prior-session context and ad-hoc memory settling.",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./sidecar/start-session-start-hook.cmd",
+            "commandWindows": ".\\sidecar\\start-session-start-hook.cmd",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -8,6 +20,18 @@
             "type": "command",
             "command": "./sidecar/start-user-prompt-submit-hook.cmd",
             "commandWindows": ".\\sidecar\\start-user-prompt-submit-hook.cmd",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./sidecar/start-stop-hook.cmd",
+            "commandWindows": ".\\sidecar\\start-stop-hook.cmd",
             "timeout": 5
           }
         ]

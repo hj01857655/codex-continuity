@@ -6,7 +6,7 @@ It adds three layers around the existing `~/.codex/memories` workspace:
 
 - structured capture skills for writing high-signal ad-hoc memory notes
 - an MCP sidecar for searching memories, related files, recent decisions, overlap candidates, and prior Codex sessions
-- a read-only `UserPromptSubmit` hook for prompt-time prior-session context
+- lifecycle hooks for read-only session context injection and stop-time ad-hoc memory settling
 
 ## Repository layout
 
@@ -16,12 +16,14 @@ codex-continuity/
 │   └── plugin.json              # Plugin manifest
 ├── .mcp.json                    # MCP server registration
 ├── hooks/
-│   └── hooks.json               # Read-only UserPromptSubmit context hook
-├── sidecar/                     # Node.js MCP stdio sidecar and hook helper
+│   └── hooks.json               # SessionStart, UserPromptSubmit, and Stop lifecycle hooks
+├── sidecar/                     # Node.js MCP stdio sidecar and hook helpers
 │   ├── server.js                # MCP protocol shell
 │   ├── tools.js                 # Tool registry
 │   ├── session.js               # Codex session search/digest support
+│   ├── session-start-hook.js    # Startup prior-session context hook
 │   ├── user-prompt-submit-hook.js # Prompt-time prior-session context hook
+│   ├── stop-hook.js             # Stop-time ad-hoc memory settling hook
 │   ├── index.js                 # Persistent memory index
 │   ├── scoring.js               # Search ranking
 │   ├── overlap.js               # Duplicate/overlap detection
@@ -63,10 +65,15 @@ The sidecar exposes tools for:
 - session digest to ad-hoc note draft generation
 - reviewed existing-note update drafts
 - hash-protected existing-note update apply
+- safe ad-hoc note write / settle helpers for lifecycle hooks
 
 ### Session workflow support
 
-`UserPromptSubmit` runs a read-only hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, and returns relevant digest text through hook `additionalContext`. The hook is fail-open and never writes memory.
+`SessionStart` runs a read-only startup hook that loads project-related prior session context from cwd, excludes the current session id, and returns digest text through hook `additionalContext`. It is fail-open and never writes memory.
+
+`UserPromptSubmit` runs a read-only prompt-time hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, and returns relevant digest text through hook `additionalContext`. The hook is fail-open and never writes memory.
+
+`Stop` runs a fail-open settling hook that turns the final assistant message into a structured ad-hoc note update. It writes only under `extensions/ad_hoc/notes/`, updates close ad-hoc notes through hash-protected apply, and never edits `MEMORY.md`, `memory_summary.md`, or rollout summaries.
 
 `codex_continuity_session_context` is the preferred workflow-level loader for prior Codex session context. It wraps session search with hydrated digests and returns `hasContext`, `primary`, `hits`, and `digests` so skills do not have to manually chain search and digest calls.
 
@@ -129,11 +136,14 @@ Implemented:
 - Codex session search across session index, prompt history, and rollout files
 - session digest generation and hydrated session-search digests
 - workflow-level session context loading
-- read-only `UserPromptSubmit` hook for prior-session context injection
+- read-only `SessionStart` hook for project-level prior-session context injection
+- read-only `UserPromptSubmit` hook for prompt-time prior-session context injection
+- fail-open `Stop` hook for ad-hoc memory settling
 - reviewed old-note update flow with `codex_continuity_note_update_draft` and hash-protected `codex_continuity_note_update_apply`
 - session digest to ad-hoc note draft generation with overlap and `settling` guidance
+- lifecycle hook tests for startup context injection, prompt-time context injection, stop-time note settling, and fail-open behavior
 - capture/retrieval skills that prefer digest-shaped prior session context
 
 Remaining Codex memory pain points:
 
-- broader hook automation, if we later decide to add `SessionStart` or `Stop` behavior after a separate source-audited design pass
+- none in the session/memory continuity mainline; future work should be treated as product tuning, not a missing pain-point fix

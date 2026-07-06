@@ -284,6 +284,47 @@ test('codexContinuitySessionContext returns hydrated prior session context for t
   assert.equal(context.digests[0].relatedPaths.includes('sidecar/session.js'), true);
 });
 
+test('session start hook emits read-only prior session context and excludes the current thread', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const previousThreadId = '00000000-0000-0000-0000-000000000333';
+  const currentThreadId = '00000000-0000-0000-0000-000000000444';
+
+  writeJsonl(codexHome, 'session_index.jsonl', [
+    { id: previousThreadId, thread_name: 'Prior startup context', updated_at: '2026-07-06T15:00:00Z' },
+    { id: currentThreadId, thread_name: 'Current startup context', updated_at: '2026-07-06T15:10:00Z' },
+  ]);
+  writeJsonl(codexHome, 'history.jsonl', [
+    { session_id: previousThreadId, ts: 1783350000, text: 'codex-continuity recent decisions root cause session context' },
+    { session_id: currentThreadId, ts: 1783350600, text: 'current startup context should be excluded' },
+  ]);
+  writeJsonl(codexHome, 'sessions/2026/07/06/startup-previous.jsonl', [
+    { type: 'session_meta', id: previousThreadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Prior startup decision: SessionStart should preload read-only context.' }] } },
+  ]);
+  writeJsonl(codexHome, 'sessions/2026/07/06/startup-current.jsonl', [
+    { type: 'session_meta', id: currentThreadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Current startup context must be excluded.' }] } },
+  ]);
+
+  const hookPath = path.join(__dirname, 'session-start-hook.js');
+  const result = spawnSync(process.execPath, [hookPath], {
+    input: JSON.stringify({
+      session_id: currentThreadId,
+      cwd: 'e:/VSCodeSpace/play/codex-continuity',
+    }),
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.continue, true);
+  assert.equal(output.suppressOutput, true);
+  assert.equal(output.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(output.hookSpecificOutput.additionalContext, /Prior startup context/);
+  assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /Current startup context/);
+});
+
 test('user prompt submit hook emits read-only prior session context and excludes the current thread', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
   const previousThreadId = '00000000-0000-0000-0000-000000000111';
@@ -339,6 +380,46 @@ test('user prompt submit hook fails open on invalid input', () => {
   assert.equal(output.continue, true);
   assert.equal(output.suppressOutput, true);
   assert.equal(output.hookSpecificOutput, undefined);
+});
+
+test('stop hook settles the final assistant message into an ad-hoc note', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const hookPath = path.join(__dirname, 'stop-hook.js');
+  const result = spawnSync(process.execPath, [hookPath], {
+    input: JSON.stringify({
+      session_id: '00000000-0000-0000-0000-000000000555',
+      cwd: 'e:/VSCodeSpace/play/codex-continuity',
+      last_assistant_message: 'Fixed Stop hook capture for sidecar/stop-hook.js and hooks/hooks.json.',
+    }),
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.continue, true);
+  assert.equal(output.suppressOutput, true);
+
+  const notesDir = path.join(codexHome, 'memories', 'extensions', 'ad_hoc', 'notes');
+  const noteFiles = fs.readdirSync(notesDir);
+  assert.equal(noteFiles.length, 1);
+  const note = fs.readFileSync(path.join(notesDir, noteFiles[0]), 'utf8');
+  assert.match(note, /Fixed Stop hook capture/);
+  assert.match(note, /sidecar\/stop-hook\.js/);
+  assert.match(note, /hooks\/hooks\.json/);
+});
+
+test('stop hook fails open on invalid input', () => {
+  const hookPath = path.join(__dirname, 'stop-hook.js');
+  const result = spawnSync(process.execPath, [hookPath], {
+    input: '{invalid json',
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.continue, true);
+  assert.equal(output.suppressOutput, true);
 });
 
 test('codexContinuityNoteUpdateDraft and Apply update an ad-hoc note with hash protection', () => {
