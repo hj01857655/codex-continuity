@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "codex-memory-retrieval": {
-      "command": "./sidecar/start-codex-memory-mcp.cmd",
+    "codex-continuity-retrieval": {
+      "command": "./sidecar/start-codex-continuity-mcp.cmd",
       "startup_timeout_sec": 10
     }
   }

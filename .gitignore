@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Runtime logs and local diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build and coverage outputs
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.vscode/
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local planning/progress notes
+PROGRESS.local.md
+codex-continuity-plugin-design.md
+# Codex memory runtime/cache artifacts
+codex-continuity-index.json
+*.tmp
+*.bak

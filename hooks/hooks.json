@@ -1,0 +1,17 @@
+{
+  "description": "Read-only prior-session context loading for Codex Continuity.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./sidecar/start-user-prompt-submit-hook.cmd",
+            "commandWindows": ".\\sidecar\\start-user-prompt-submit-hook.cmd",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
