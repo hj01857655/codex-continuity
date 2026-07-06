@@ -113,10 +113,11 @@ This repository can also act as its own Codex marketplace source:
 /plugin install codex-continuity@codex-continuity
 ```
 
-For direct CLI installation, use:
+For non-interactive CLI installation, use the verified Codex commands:
 
 ```powershell
-npx codex-marketplace add hj01857655/codex-continuity --plugins
+codex plugin marketplace add hj01857655/codex-continuity-marketplace --ref main
+codex plugin add codex-continuity@codex-continuity-marketplace
 ```
 
 ## Development workflow
