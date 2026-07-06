@@ -99,7 +99,14 @@ When called with `include_digest: true`, search hits include a reusable memory-s
 
 ## Install from Codex
 
-This repository can act as its own Codex marketplace source:
+Use the dedicated marketplace source:
+
+```text
+/plugins marketplace add hj01857655/codex-continuity-marketplace
+/plugin install codex-continuity@codex-continuity-marketplace
+```
+
+This repository can also act as its own Codex marketplace source:
 
 ```text
 /plugins marketplace add hj01857655/codex-continuity
