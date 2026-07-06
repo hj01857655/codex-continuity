@@ -1,5 +1,4 @@
 {
-  "description": "Codex Continuity lifecycle hooks for prior-session context and ad-hoc memory settling.",
   "hooks": {
     "SessionStart": [
       {

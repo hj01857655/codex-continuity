@@ -1,7 +1,9 @@
 {
   "mcpServers": {
     "codex-continuity-retrieval": {
-      "command": "./sidecar/start-codex-continuity-mcp.cmd",
+      "command": "node",
+      "args": ["./sidecar/server.js"],
+      "cwd": ".",
       "startup_timeout_sec": 10
     }
   }
