@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./sidecar/start-session-start-hook.cmd",
-            "commandWindows": ".\\sidecar\\start-session-start-hook.cmd",
+            "command": "node \"${PLUGIN_ROOT}/sidecar/session-start-hook.js\"",
+            "commandWindows": "node \"${PLUGIN_ROOT}\\sidecar\\session-start-hook.js\"",
             "timeout": 5
           }
         ]
@@ -17,8 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./sidecar/start-user-prompt-submit-hook.cmd",
-            "commandWindows": ".\\sidecar\\start-user-prompt-submit-hook.cmd",
+            "command": "node \"${PLUGIN_ROOT}/sidecar/user-prompt-submit-hook.js\"",
+            "commandWindows": "node \"${PLUGIN_ROOT}\\sidecar\\user-prompt-submit-hook.js\"",
             "timeout": 5
           }
         ]
@@ -29,8 +29,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./sidecar/start-stop-hook.cmd",
-            "commandWindows": ".\\sidecar\\start-stop-hook.cmd",
+            "command": "node \"${PLUGIN_ROOT}/sidecar/stop-hook.js\"",
+            "commandWindows": "node \"${PLUGIN_ROOT}\\sidecar\\stop-hook.js\"",
             "timeout": 5
           }
         ]
