@@ -198,6 +198,72 @@ function sha256(value) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+function assertCoreMemoryPath(notePath) {
+  if (!['MEMORY.md', 'memory_summary.md'].includes(notePath)) {
+    throw new Error('`path` must be MEMORY.md or memory_summary.md');
+  }
+}
+
+function codexContinuityCoreMemoryUpdateDraft(runtime, args = {}) {
+  const targetPath = normalizeMemoryPath(args.path || args.target_path || args.targetPath);
+  const updatedContent = String(args.updatedContent || args.updated_content || args.content || '').trimEnd();
+  if (!targetPath) {
+    throw new Error('`path` is required');
+  }
+  assertCoreMemoryPath(targetPath);
+  if (!updatedContent) {
+    throw new Error('`updatedContent` is required');
+  }
+
+  const existing = codexContinuityReadNote(runtime, { path: targetPath });
+  const expectedHash = sha256(existing.content);
+  return {
+    targetPath,
+    title: existing.title,
+    action: 'review_update_core_memory',
+    guidance: 'Review updatedContent, then call codex_continuity_core_memory_update_apply with targetPath, updatedContent, and expectedHash only when the core memory change is intentional.',
+    expectedHash,
+    updatedContent,
+    existing,
+  };
+}
+
+function codexContinuityCoreMemoryUpdateApply(runtime, args = {}) {
+  const targetPath = normalizeMemoryPath(args.path || args.targetPath || args.target_path);
+  const updatedContent = String(args.updatedContent || args.updated_content || '').trimEnd();
+  const expectedHash = String(args.expectedHash || args.expected_hash || '').trim();
+  if (!targetPath) {
+    throw new Error('`path` is required');
+  }
+  assertCoreMemoryPath(targetPath);
+  if (!updatedContent) {
+    throw new Error('`updatedContent` is required');
+  }
+  if (!expectedHash) {
+    throw new Error('`expectedHash` is required');
+  }
+
+  const fullPath = path.join(runtime.memoriesRoot, targetPath);
+  if (!safeStat(fullPath)?.isFile()) {
+    throw new Error(`Core memory file not found: ${targetPath}`);
+  }
+
+  const currentContent = fs.readFileSync(fullPath, 'utf8');
+  const currentHash = sha256(currentContent);
+  if (currentHash !== expectedHash) {
+    throw new Error('Core memory changed since draft was created; rebuild the update draft before applying.');
+  }
+
+  const finalContent = updatedContent.endsWith('\n') ? updatedContent : `${updatedContent}\n`;
+  fs.writeFileSync(fullPath, finalContent, 'utf8');
+  return {
+    targetPath,
+    action: 'updated_core_memory',
+    previousHash: currentHash,
+    currentHash: sha256(finalContent),
+  };
+}
+
 function codexContinuityNoteUpdateDraft(runtime, args = {}) {
   const targetPath = normalizeMemoryPath(args.path || args.target_path || args.targetPath);
   const content = String(args.content || args.note || args.delta || '').trim();
@@ -504,6 +570,33 @@ function createToolRegistry(runtime) {
       },
       run: (args) => codexContinuitySessionSearch(runtime, args),
     },
+    codex_continuity_core_memory_update_draft: {
+      description: 'Build a reviewable update draft for MEMORY.md or memory_summary.md without mutating it.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Core memory file to update: MEMORY.md or memory_summary.md.' },
+          updatedContent: { type: 'string', description: 'Full reviewed Markdown content proposed for the core memory file.' },
+        },
+        required: ['path', 'updatedContent'],
+        additionalProperties: false,
+      },
+      run: (args) => codexContinuityCoreMemoryUpdateDraft(runtime, args),
+    },
+    codex_continuity_core_memory_update_apply: {
+      description: 'Apply a reviewed update to MEMORY.md or memory_summary.md with hash-based conflict protection.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Core memory file to update: MEMORY.md or memory_summary.md.' },
+          updatedContent: { type: 'string', description: 'Full reviewed Markdown content to write.' },
+          expectedHash: { type: 'string', description: 'SHA-256 hash returned by codex_continuity_core_memory_update_draft.' },
+        },
+        required: ['path', 'updatedContent', 'expectedHash'],
+        additionalProperties: false,
+      },
+      run: (args) => codexContinuityCoreMemoryUpdateApply(runtime, args),
+    },
     codex_continuity_ad_hoc_note_write: {
       description: 'Write a new structured ad-hoc memory note under ~/.codex/memories/extensions/ad_hoc/notes/.',
       inputSchema: {
@@ -637,6 +730,8 @@ function createToolRegistry(runtime) {
 
 module.exports = {
   createToolRegistry,
+  codexContinuityCoreMemoryUpdateApply,
+  codexContinuityCoreMemoryUpdateDraft,
   codexContinuitySettleAdHocNote,
   codexContinuityWriteAdHocNote,
   codexContinuityNoteUpdateApply,

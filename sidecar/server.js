@@ -13,13 +13,14 @@ const { codexContinuitySessionContext, codexContinuitySessionDigest, codexContin
 const { queryDocuments } = require('./scoring');
 const {
   createToolRegistry,
+  codexContinuityCoreMemoryUpdateApply,
+  codexContinuityCoreMemoryUpdateDraft,
   codexContinuitySettleAdHocNote,
   codexContinuityWriteAdHocNote,
   codexContinuityNoteUpdateApply,
   codexContinuityNoteUpdateDraft,
   codexContinuitySessionNoteDraft,
 } = require('./tools');
-
 function send(message) {
   process.stdout.write(JSON.stringify(message) + '\n');
 }
@@ -156,6 +157,8 @@ module.exports = {
   createRuntime,
   findOverlapHits,
   handleMessage,
+  codexContinuityCoreMemoryUpdateApply,
+  codexContinuityCoreMemoryUpdateDraft,
   codexContinuitySettleAdHocNote,
   codexContinuityWriteAdHocNote,
   codexContinuityNoteUpdateApply,

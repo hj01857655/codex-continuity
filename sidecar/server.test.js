@@ -9,6 +9,8 @@ const {
   createRuntime,
   buildIndex,
   findOverlapHits,
+  codexContinuityCoreMemoryUpdateApply,
+  codexContinuityCoreMemoryUpdateDraft,
   codexContinuityOverlap,
   codexContinuityNoteUpdateApply,
   codexContinuityNoteUpdateDraft,
@@ -420,6 +422,62 @@ test('stop hook fails open on invalid input', () => {
   const output = JSON.parse(result.stdout);
   assert.equal(output.continue, true);
   assert.equal(output.suppressOutput, true);
+});
+
+test('codexContinuityCoreMemoryUpdateDraft and Apply update core memory with hash protection', () => {
+  const memoriesRoot = makeTempMemoriesRoot();
+  const original = '# Memory Summary\n\nOld project summary.\n';
+  writeFile(memoriesRoot, 'memory_summary.md', original);
+
+  const runtime = createRuntime({ memoriesRoot });
+  const draft = codexContinuityCoreMemoryUpdateDraft(runtime, {
+    path: 'memory_summary.md',
+    updatedContent: '# Memory Summary\n\nUpdated project summary with corrected continuity guidance.\n',
+  });
+
+  assert.equal(draft.action, 'review_update_core_memory');
+  assert.equal(draft.targetPath, 'memory_summary.md');
+  assert.match(draft.updatedContent, /corrected continuity guidance/);
+  assert.equal(fs.readFileSync(path.join(memoriesRoot, 'memory_summary.md'), 'utf8'), original);
+
+  const applied = codexContinuityCoreMemoryUpdateApply(runtime, {
+    path: 'memory_summary.md',
+    updatedContent: draft.updatedContent,
+    expectedHash: draft.expectedHash,
+  });
+
+  assert.equal(applied.action, 'updated_core_memory');
+  assert.notEqual(applied.currentHash, applied.previousHash);
+  assert.match(fs.readFileSync(path.join(memoriesRoot, 'memory_summary.md'), 'utf8'), /corrected continuity guidance/);
+});
+
+test('codexContinuityCoreMemoryUpdateApply rejects unsupported paths and stale drafts', () => {
+  const memoriesRoot = makeTempMemoriesRoot();
+  writeFile(memoriesRoot, 'MEMORY.md', '# Memory\n\nOriginal memory.\n');
+
+  const runtime = createRuntime({ memoriesRoot });
+  const draft = codexContinuityCoreMemoryUpdateDraft(runtime, {
+    path: 'MEMORY.md',
+    updatedContent: '# Memory\n\nReviewed update.\n',
+  });
+
+  assert.throws(
+    () => codexContinuityCoreMemoryUpdateDraft(runtime, {
+      path: 'extensions/ad_hoc/notes/not-core.md',
+      updatedContent: '# Not core\n',
+    }),
+    /MEMORY\.md or memory_summary\.md/,
+  );
+
+  fs.writeFileSync(path.join(memoriesRoot, 'MEMORY.md'), '# Memory\n\nChanged elsewhere.\n', 'utf8');
+  assert.throws(
+    () => codexContinuityCoreMemoryUpdateApply(runtime, {
+      path: 'MEMORY.md',
+      updatedContent: draft.updatedContent,
+      expectedHash: draft.expectedHash,
+    }),
+    /Core memory changed since draft was created/,
+  );
 });
 
 test('codexContinuityNoteUpdateDraft and Apply update an ad-hoc note with hash protection', () => {

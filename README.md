@@ -65,6 +65,8 @@ The sidecar exposes tools for:
 - session digest to ad-hoc note draft generation
 - reviewed existing-note update drafts
 - hash-protected existing-note update apply
+- explicit core memory update drafts for `MEMORY.md` / `memory_summary.md`
+- hash-protected core memory update apply
 - safe ad-hoc note write / settle helpers for lifecycle hooks
 
 ### Session workflow support
@@ -73,7 +75,9 @@ The sidecar exposes tools for:
 
 `UserPromptSubmit` runs a read-only prompt-time hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, and returns relevant digest text through hook `additionalContext`. The hook is fail-open and never writes memory.
 
-`Stop` runs a fail-open settling hook that turns the final assistant message into a structured ad-hoc note update. It writes only under `extensions/ad_hoc/notes/`, updates close ad-hoc notes through hash-protected apply, and never edits `MEMORY.md`, `memory_summary.md`, or rollout summaries.
+`Stop` runs a fail-open settling hook that turns the final assistant message into a structured ad-hoc note update. Its automatic path writes only under `extensions/ad_hoc/notes/` and updates close ad-hoc notes through hash-protected apply; it does not silently edit `MEMORY.md`, `memory_summary.md`, or rollout summaries.
+
+`codex_continuity_core_memory_update_draft` and `codex_continuity_core_memory_update_apply` provide the explicit core-memory correction path for `MEMORY.md` and `memory_summary.md`. Use them when those files are wrong or stale and the update is intentional; the apply step requires `expectedHash` to avoid overwriting concurrent Codex consolidation changes.
 
 `codex_continuity_session_context` is the preferred workflow-level loader for prior Codex session context. It wraps session search with hydrated digests and returns `hasContext`, `primary`, `hits`, and `digests` so skills do not have to manually chain search and digest calls.
 
@@ -139,6 +143,7 @@ Implemented:
 - read-only `SessionStart` hook for project-level prior-session context injection
 - read-only `UserPromptSubmit` hook for prompt-time prior-session context injection
 - fail-open `Stop` hook for ad-hoc memory settling
+- explicit `MEMORY.md` / `memory_summary.md` update flow with review + hash protection
 - reviewed old-note update flow with `codex_continuity_note_update_draft` and hash-protected `codex_continuity_note_update_apply`
 - session digest to ad-hoc note draft generation with overlap and `settling` guidance
 - lifecycle hook tests for startup context injection, prompt-time context injection, stop-time note settling, and fail-open behavior
