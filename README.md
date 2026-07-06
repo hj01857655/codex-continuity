@@ -12,6 +12,9 @@ It adds three layers around the existing `~/.codex/memories` workspace:
 
 ```text
 codex-continuity/
+├── .agents/
+│   └── plugins/
+│       └── marketplace.json     # Codex marketplace source manifest
 ├── .codex-plugin/
 │   └── plugin.json              # Plugin manifest
 ├── .mcp.json                    # MCP server registration
@@ -93,6 +96,21 @@ The sidecar exposes tools for:
 - `archived_sessions/**/*.jsonl`
 
 When called with `include_digest: true`, search hits include a reusable memory-shaped digest containing title, project, summary, related paths, and rollout paths. Use direct `codex_continuity_session_digest` only when you already have a specific thread id or need to re-focus the digest query.
+
+## Install from Codex
+
+This repository can act as its own Codex marketplace source:
+
+```text
+/plugins marketplace add hj01857655/codex-continuity
+/plugin install codex-continuity@codex-continuity
+```
+
+For direct CLI installation, use:
+
+```powershell
+npx codex-marketplace add hj01857655/codex-continuity --plugins
+```
 
 ## Development workflow
 
