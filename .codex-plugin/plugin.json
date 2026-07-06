@@ -1,0 +1,21 @@
+{
+  "name": "codex-memory",
+  "version": "0.1.0",
+  "description": "Full Codex memory enhancement bundle. Adds structured ad-hoc capture plus a retrieval MCP toolkit over the stock memories workspace.",
+  "keywords": ["memory", "capture", "retrieval", "summary", "decisions", "notes", "consolidation"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Codex Memory",
+    "shortDescription": "Full capture and retrieval tooling for Codex memory.",
+    "longDescription": "Adds two layers on top of stock Codex memory without modifying codex-rs: a capture skill that writes structured ad-hoc notes to ~/.codex/memories/extensions/ad_hoc/notes/, and a retrieval MCP sidecar that exposes project summary, general search, related-file lookup, recent-decision lookup, note reading, and workspace status tools over the existing memories workspace. The stock Phase 2 consolidation pipeline still owns durable MEMORY.md and memory_summary.md updates; this plugin enhances capture and retrieval around that pipeline rather than replacing it.",
+    "developerName": "Codex user",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Finish this task, capture the root cause, and use memory retrieval when prior context may help.",
+      "Fix this bug, save a structured ad-hoc memory note, and search related files and past decisions in memory."
+    ],
+    "brandColor": "#10B981"
+  }
+}
