@@ -240,6 +240,7 @@ function codexContinuitySessionNoteDraft(runtime, args = {}) {
     summary,
     relatedPaths,
     settlingAction: settling.action,
+    settlingTargetPath: settling.targetPath,
   });
 
   return {
@@ -470,6 +471,7 @@ function codexContinuitySettleAdHocNote(runtime, args = {}) {
     content,
     relatedPaths: paths,
     settlingAction,
+    settlingTargetPath: primaryMatch?.path,
   });
 
   if (recommendation.action === 'update_existing' && primaryMatch?.path?.startsWith('extensions/ad_hoc/notes/')) {

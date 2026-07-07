@@ -127,7 +127,7 @@ codex plugin add codex-continuity@codex-continuity-marketplace
 The source repository also exposes the plugin directly by release tag:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.2
+codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.3
 codex plugin add codex-continuity@codex-continuity
 ```
 
