@@ -1,6 +1,6 @@
 {
   "name": "codex-continuity",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Thin continuity adapter for Codex. Adds prior-session retrieval, transcript-backed pre-compact checkpoints, and stop-time note settling over the stock memories workspace.",
   "keywords": ["memory", "capture", "retrieval", "summary", "decisions", "notes", "consolidation"],
   "skills": "./skills/",

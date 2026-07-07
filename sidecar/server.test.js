@@ -215,7 +215,7 @@ test('codexContinuitySessionHealth reports malformed rollouts and index mismatch
   assert.equal(health.counts.malformed, 1);
   assert.equal(health.counts.missingSessionIndex, 1);
   assert.equal(health.counts.rawArchiveMissing, 1);
-  assert.equal(health.runtime.pluginVersion, '0.1.7');
+  assert.equal(health.runtime.pluginVersion, '0.1.8');
   assert.equal(health.observability.archive.lastArchivedAt, null);
   assert.equal(health.issues.some((issue) => issue.type === 'raw_archive_missing'), true);
   assert.equal(health.issues.some((issue) => issue.type === 'malformed_rollout'), true);
@@ -245,7 +245,7 @@ test('codexContinuitySessionHealth reports runtime and archive observability aft
   const health = codexContinuitySessionHealth(runtime, { limit: 10 });
 
   assert.equal(health.status, 'ok');
-  assert.equal(health.runtime.pluginVersion, '0.1.7');
+  assert.equal(health.runtime.pluginVersion, '0.1.8');
   assert.match(health.runtime.serverEntrypoint, /server\.test\.js$/);
   assert.match(health.runtime.pluginRoot.replace(/\\/g, '/'), /codex-continuity$/);
   assert.match(health.observability.archive.lastArchivedAt, /^\d{4}-\d{2}-\d{2}T/);
@@ -494,8 +494,8 @@ test('user prompt submit hook emits prior session context without writing proces
     { id: currentThreadId, thread_name: 'Current prompt context', updated_at: '2026-07-06T14:10:00Z' },
   ]);
   writeJsonl(codexHome, 'history.jsonl', [
-    { session_id: previousThreadId, ts: 1783346400, text: 'prompt hook should inject prior session context' },
-    { session_id: currentThreadId, ts: 1783347000, text: 'prompt hook should not inject current session context' },
+    { session_id: previousThreadId, ts: 1783346400, text: 'codex-continuity prompt hook should inject prior session context' },
+    { session_id: currentThreadId, ts: 1783347000, text: 'codex-continuity prompt hook should not inject current session context' },
   ]);
   writeJsonl(codexHome, 'sessions/2026/07/06/previous.jsonl', [
     { type: 'session_meta', id: previousThreadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
@@ -544,7 +544,7 @@ test('session start hook accepts BOM-prefixed JSON input', () => {
     { id: previousThreadId, thread_name: 'Prior startup context', updated_at: '2026-07-06T15:00:00Z' },
   ]);
   writeJsonl(codexHome, 'history.jsonl', [
-    { session_id: previousThreadId, ts: 1783350600, text: 'prior startup context should still parse with BOM input' },
+    { session_id: previousThreadId, ts: 1783350600, text: 'codex-continuity prior startup context should still parse with BOM input' },
   ]);
   writeJsonl(codexHome, 'sessions/2026/07/06/startup-bom.jsonl', [
     { type: 'session_meta', id: previousThreadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
@@ -613,7 +613,7 @@ test('user prompt submit hook accepts BOM-prefixed JSON input', () => {
     { id: previousThreadId, thread_name: 'Prior prompt context', updated_at: '2026-07-06T16:00:00Z' },
   ]);
   writeJsonl(codexHome, 'history.jsonl', [
-    { session_id: previousThreadId, ts: 1783354200, text: 'prior prompt context should still parse with BOM input' },
+    { session_id: previousThreadId, ts: 1783354200, text: 'codex-continuity prior prompt context should still parse with BOM input' },
   ]);
   writeJsonl(codexHome, 'sessions/2026/07/06/prompt-bom.jsonl', [
     { type: 'session_meta', id: previousThreadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },

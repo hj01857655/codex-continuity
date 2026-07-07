@@ -131,6 +131,49 @@ function ingestRollouts(runtime, sessions) {
   }
 }
 
+function sessionText(session) {
+  return normalizeText([session.name, session.cwd, ...session.historyTexts, ...session.rolloutTexts].join(' '));
+}
+
+function exactProjectTokens(value) {
+  return normalizeText(value)
+    .replace(/\\/g, '/')
+    .split(/[^a-z0-9_-]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function projectAliasPath(runtime) {
+  return path.join(runtime.codexHome, 'codex-continuity', 'project-aliases.json');
+}
+
+function readProjectAliasTokens(runtime, cwdToken) {
+  if (!cwdToken) {
+    return [];
+  }
+  try {
+    const raw = fs.readFileSync(projectAliasPath(runtime), 'utf8');
+    const aliases = JSON.parse(raw) || {};
+    const values = aliases[cwdToken] || aliases[cwdToken.toLowerCase()] || [];
+    return uniq([cwdToken, ...arrayFromOptional(values).flatMap(exactProjectTokens)]);
+  } catch {
+    return [cwdToken];
+  }
+}
+
+function sessionHasExactProjectSignal(session, projectTokens) {
+  const tokens = Array.isArray(projectTokens) ? projectTokens.filter(Boolean) : [projectTokens].filter(Boolean);
+  if (!tokens.length) {
+    return false;
+  }
+  const cwdSignals = session.cwd ? pathSignalTokens(session.cwd) : [];
+  if (tokens.some((token) => cwdSignals.includes(token))) {
+    return true;
+  }
+  const textTokens = exactProjectTokens([session.name, ...session.historyTexts, ...session.rolloutTexts].join(' '));
+  return tokens.some((token) => textTokens.includes(token));
+}
+
 function sessionScore(session, queryTokens, cwdTokens) {
   const nameText = normalizeText(session.name || '');
   const cwdText = normalizeText(session.cwd || '');
@@ -553,6 +596,7 @@ function codexContinuitySessionSearch(runtime, args = {}) {
   const cwd = String(args.cwd || '').trim();
   const includeDigest = args.include_digest === true || args.includeDigest === true;
   const includeRollouts = args.include_rollouts !== false && args.includeRollouts !== false;
+  const requireCwdMatch = args.require_cwd_match === true || args.requireCwdMatch === true;
   const excludedThreadIds = new Set(
     [
       args.exclude_thread_id,
@@ -565,11 +609,13 @@ function codexContinuitySessionSearch(runtime, args = {}) {
   );
   const queryTokens = uniq(tokenize(query));
   const cwdToken = cwd ? basenameFromAnyPath(cwd) : '';
+  const projectTokens = readProjectAliasTokens(runtime, cwdToken);
   const cwdTokens = pathSignalTokens(cwd).filter((token) => token !== cwdToken);
   const sessions = collectSessions(runtime, { includeRollouts });
 
   const hits = [...sessions.values()]
     .filter((session) => !excludedThreadIds.has(session.threadId))
+    .filter((session) => !requireCwdMatch || sessionHasExactProjectSignal(session, projectTokens))
     .map((session) => ({ session, score: sessionScore(session, queryTokens, cwdTokens) }))
     .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score)
