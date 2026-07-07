@@ -74,16 +74,26 @@ function buildStopNote(input) {
   };
 }
 
+function buildPromotionMessage(settled) {
+  const promotion = settled?.coreMemoryPromotion || null;
+  if (!promotion?.targetPath) {
+    return null;
+  }
+  return `Core memory promotion draft ready for ${promotion.targetPath}. Review the proposed draft before applying it.`;
+}
+
 async function main() {
   try {
     const raw = await readStdin();
     const input = raw.trim() ? JSON.parse(raw) : {};
     const note = buildStopNote(input);
+    let systemMessage = null;
     if (note) {
       const runtime = createRuntime();
-      codexContinuitySettleAdHocNote(runtime, note);
+      const settled = codexContinuitySettleAdHocNote(runtime, note);
+      systemMessage = buildPromotionMessage(settled);
     }
-    process.stdout.write(JSON.stringify(success(null)) + '\n');
+    process.stdout.write(JSON.stringify(success(systemMessage)) + '\n');
   } catch {
     process.stdout.write(JSON.stringify(success(null)) + '\n');
   }
@@ -94,6 +104,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildPromotionMessage,
   buildStopNote,
   extractRelatedPaths,
   success,

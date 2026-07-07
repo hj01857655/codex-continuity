@@ -482,8 +482,10 @@ test('user prompt submit hook fails open on invalid input', () => {
   assert.equal(output.hookSpecificOutput, undefined);
 });
 
-test('stop hook settles the final assistant message into an ad-hoc note', () => {
+test('stop hook settles the final assistant message into an ad-hoc note and surfaces a core-memory promotion draft', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  writeFile(codexHome, 'memories/memory_summary.md', '# Memory Summary\n\nExisting project summary.\n');
+
   const hookPath = path.join(__dirname, 'stop-hook.js');
   const result = spawnSync(process.execPath, [hookPath], {
     input: JSON.stringify({
@@ -499,6 +501,7 @@ test('stop hook settles the final assistant message into an ad-hoc note', () => 
   const output = JSON.parse(result.stdout);
   assert.equal(output.continue, true);
   assert.equal(output.suppressOutput, true);
+  assert.match(output.systemMessage, /Core memory promotion draft ready for memory_summary\.md/);
 
   const notesDir = path.join(codexHome, 'memories', 'extensions', 'ad_hoc', 'notes');
   const noteFiles = fs.readdirSync(notesDir);
