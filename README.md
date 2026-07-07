@@ -1,3 +1,4 @@
+
 # codex-continuity
 
 `codex-continuity` is a Codex plugin bundle that enhances the stock Codex memory workflow without replacing Codex's built-in consolidation pipeline.
@@ -127,7 +128,7 @@ codex plugin add codex-continuity@codex-continuity-marketplace
 The source repository also exposes the plugin directly by release tag:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.3
+codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.4
 codex plugin add codex-continuity@codex-continuity
 ```
 

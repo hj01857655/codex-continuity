@@ -1,6 +1,6 @@
 {
   "name": "codex-continuity",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Thin continuity adapter for Codex. Adds session retrieval, structured ad-hoc capture, read-only lifecycle context injection, and stop-time note settling over the stock memories workspace.",
   "keywords": ["memory", "capture", "retrieval", "summary", "decisions", "notes", "consolidation"],
   "skills": "./skills/",

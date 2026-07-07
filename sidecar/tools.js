@@ -153,6 +153,7 @@ function buildCoreMemoryPromotionDraft(runtime, args = {}) {
   const cwd = String(args.cwd || '').trim();
   const relatedPaths = normalizePaths(args.relatedPaths || args.related_paths || args.paths);
   const settlingAction = String(args.settlingAction || '').trim();
+  const settlingTargetPath = normalizeMemoryPath(args.settlingTargetPath || args.settling_target_path || '');
   const summary = pickPromotionSummary(args.summary, args.content);
   const targetPath = selectCoreMemoryTarget(noteType, summary, title);
   const fullPath = path.join(runtime.memoriesRoot, targetPath);
@@ -163,9 +164,10 @@ function buildCoreMemoryPromotionDraft(runtime, args = {}) {
   if (!safeStat(fullPath)?.isFile()) {
     return null;
   }
-  if (settlingAction === 'review_before_writing') {
+  if (settlingAction === 'review_before_writing' && settlingTargetPath.startsWith('extensions/ad_hoc/notes/')) {
     return null;
   }
+
   if (!relatedPaths.length && !/(root cause|decision|fix|fixed|resolved|changed|added|updated|regression)/i.test(summary)) {
     return null;
   }
