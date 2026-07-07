@@ -99,7 +99,7 @@ Hook stdin compatibility note: real Codex hook invocations on Windows may prepen
 - `sessions/**/*.jsonl`
 - `archived_sessions/**/*.jsonl`
 
-When called with `include_digest: true`, search hits include a reusable memory-shaped digest containing title, project, summary, related paths, and rollout paths. Use direct `codex_continuity_session_digest` only when you already have a specific thread id or need to re-focus the digest query.
+When called with `include_digest: true`, search hits include a reusable memory-shaped digest containing title, project, summary, related paths, and rollout paths. Hook injection consumes a thinner projection of that digest; workflow tools keep the full shape, and session/note settling can now derive reviewable core-memory promotion drafts from it. Use direct `codex_continuity_session_digest` only when you already have a specific thread id or need to re-focus the digest query.
 
 ## Install from Codex
 

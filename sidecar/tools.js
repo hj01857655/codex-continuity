@@ -128,6 +128,73 @@ function buildSettlingRecommendation(overlap) {
   };
 }
 
+function pickPromotionSummary(summary, content) {
+  const direct = String(summary || '').trim();
+  if (direct) {
+    return direct;
+  }
+  return String(content || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^#+\s*/, '').replace(/^[-*]\s*/, ''))
+    .find(Boolean) || '';
+}
+
+function selectCoreMemoryTarget(noteType, summary, title) {
+  const signal = `${noteType || ''} ${summary || ''} ${title || ''}`.toLowerCase();
+  return /(decision|policy|invariant|rule|contract|guardrail)/.test(signal)
+    ? 'MEMORY.md'
+    : 'memory_summary.md';
+}
+
+function buildCoreMemoryPromotionDraft(runtime, args = {}) {
+  const title = String(args.title || '').trim();
+  const noteType = String(args.type || 'session').trim() || 'session';
+  const threadId = String(args.threadId || args.thread_id || '').trim();
+  const cwd = String(args.cwd || '').trim();
+  const relatedPaths = normalizePaths(args.relatedPaths || args.related_paths || args.paths);
+  const settlingAction = String(args.settlingAction || '').trim();
+  const summary = pickPromotionSummary(args.summary, args.content);
+  const targetPath = selectCoreMemoryTarget(noteType, summary, title);
+  const fullPath = path.join(runtime.memoriesRoot, targetPath);
+
+  if (!summary || summary.length < 24) {
+    return null;
+  }
+  if (!safeStat(fullPath)?.isFile()) {
+    return null;
+  }
+  if (settlingAction === 'review_before_writing') {
+    return null;
+  }
+  if (!relatedPaths.length && !/(root cause|decision|fix|fixed|resolved|changed|added|updated|regression)/i.test(summary)) {
+    return null;
+  }
+
+  const existing = codexContinuityReadNote(runtime, { path: targetPath });
+  const relatedPathLines = relatedPaths.length
+    ? relatedPaths.map((item) => `- \`${item}\``).join('\n')
+    : '- No specific files identified.';
+  const metadata = [
+    threadId ? `- session: thread \`${threadId}\`` : null,
+    cwd ? `- cwd: ${cwd}` : null,
+    `- promoted_from: ${noteType}`,
+  ].filter(Boolean).join('\n');
+  const heading = targetPath === 'MEMORY.md' ? '## Stable continuity rule' : '## Session continuity update';
+  const updatedContent = `${existing.content.trimEnd()}\n\n${heading}\n\n### ${title || 'Session continuity'}\n${metadata}\n\n${summary}\n\nRelated paths:\n${relatedPathLines}\n`;
+  const draft = codexContinuityCoreMemoryUpdateDraft(runtime, {
+    path: targetPath,
+    updatedContent,
+  });
+
+  return {
+    action: 'review_update_core_memory',
+    reason: 'stable_session_outcome',
+    targetPath,
+    guidance: 'Review the proposed core-memory promotion draft, then apply it intentionally if the session outcome belongs in durable memory.',
+    draft,
+  };
+}
+
 function codexContinuitySessionNoteDraft(runtime, args = {}) {
   const digest = args.digest || null;
   if (!digest || typeof digest !== 'object') {
@@ -165,6 +232,15 @@ function codexContinuitySessionNoteDraft(runtime, args = {}) {
     limit: Number(args.limit) || 5,
   });
   const settling = buildSettlingRecommendation(overlap);
+  const coreMemoryPromotion = buildCoreMemoryPromotionDraft(runtime, {
+    title,
+    type: noteType,
+    threadId,
+    cwd,
+    summary,
+    relatedPaths,
+    settlingAction: settling.action,
+  });
 
   return {
     slug,
@@ -178,6 +254,7 @@ function codexContinuitySessionNoteDraft(runtime, args = {}) {
     content,
     overlap,
     settling,
+    coreMemoryPromotion,
   };
 }
 
@@ -370,6 +447,7 @@ function codexContinuitySettleAdHocNote(runtime, args = {}) {
   }
   const cwd = String(args.cwd || '').trim();
   const paths = normalizePaths(args.paths || []);
+  const noteType = String(args.type || 'session').trim() || 'session';
   const heading = String(args.heading || 'Update').trim() || 'Update';
   const timestamp = String(args.timestamp || new Date().toISOString()).trim();
   const overlap = codexContinuityOverlap(runtime, {
@@ -380,6 +458,19 @@ function codexContinuitySettleAdHocNote(runtime, args = {}) {
   });
   const recommendation = overlap.recommendation || {};
   const primaryMatch = recommendation.primaryMatch || null;
+  const settlingAction = recommendation.action === 'update_existing'
+    ? 'write_delta_note'
+    : recommendation.action === 'review_existing'
+      ? 'review_before_writing'
+      : 'create_new_note';
+  const coreMemoryPromotion = buildCoreMemoryPromotionDraft(runtime, {
+    title,
+    type: noteType,
+    cwd,
+    content,
+    relatedPaths: paths,
+    settlingAction,
+  });
 
   if (recommendation.action === 'update_existing' && primaryMatch?.path?.startsWith('extensions/ad_hoc/notes/')) {
     const draft = codexContinuityNoteUpdateDraft(runtime, {
@@ -398,6 +489,7 @@ function codexContinuitySettleAdHocNote(runtime, args = {}) {
       overlap,
       draft,
       applied,
+      coreMemoryPromotion,
     };
   }
 
@@ -411,6 +503,7 @@ function codexContinuitySettleAdHocNote(runtime, args = {}) {
     action: 'created_ad_hoc_note',
     overlap,
     note,
+    coreMemoryPromotion,
   };
 }
 
@@ -661,7 +754,7 @@ function createToolRegistry(runtime) {
       run: (args) => codexContinuityNoteUpdateDraft(runtime, args),
     },
     codex_continuity_session_note_draft: {
-      description: 'Build an ad-hoc memory note draft from a session digest and include overlap recommendations.',
+      description: 'Build an ad-hoc memory note draft from a session digest, include overlap recommendations, and surface a reviewable core-memory promotion draft when the digest looks stable enough for durable memory.',
       inputSchema: {
         type: 'object',
         properties: {

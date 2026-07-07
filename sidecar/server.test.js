@@ -632,10 +632,9 @@ test('codexContinuityNoteUpdateApply rejects stale update drafts', () => {
     }),
     /Existing note changed since draft was created/,
   );
-});
-
-test('codexContinuitySessionNoteDraft builds a capture note draft and overlap recommendation from a digest', () => {
+test('codexContinuitySessionNoteDraft builds a capture note draft, overlap recommendation, and core-memory promotion draft', () => {
   const memoriesRoot = makeTempMemoriesRoot();
+  writeFile(memoriesRoot, 'memory_summary.md', '# Memory Summary\n\nExisting project summary.\n');
   writeFile(
     memoriesRoot,
     'extensions/ad_hoc/notes/2026-07-06T12-00-00-session-note-drafting.md',
@@ -663,4 +662,56 @@ test('codexContinuitySessionNoteDraft builds a capture note draft and overlap re
   assert.equal(draft.overlap.recommendation.action, 'update_existing');
   assert.equal(draft.settling.action, 'write_delta_note');
   assert.equal(draft.settling.targetPath, 'extensions/ad_hoc/notes/2026-07-06T12-00-00-session-note-drafting.md');
+  assert.equal(draft.coreMemoryPromotion.targetPath, 'memory_summary.md');
+  assert.equal(draft.coreMemoryPromotion.action, 'review_update_core_memory');
+  assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Session continuity update/);
+  assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Added session note draft orchestration and overlap checks\./);
+});
+
+test('codexContinuitySettleAdHocNote returns a core-memory promotion draft for stable outcomes', () => {
+  const memoriesRoot = makeTempMemoriesRoot();
+  writeFile(memoriesRoot, 'memory_summary.md', '# Memory Summary\n\nExisting project summary.\n');
+
+  const runtime = createRuntime({ memoriesRoot });
+  const settled = codexContinuitySettleAdHocNote(runtime, {
+    title: 'Fix stop hook capture',
+    type: 'bugfix',
+    cwd: 'e:/VSCodeSpace/play/codex-continuity',
+    paths: ['sidecar/stop-hook.js', 'hooks/hooks.json'],
+    content: 'Fixed Stop hook capture for sidecar/stop-hook.js and hooks/hooks.json so final session outcomes settle reliably.',
+    timestamp: '2026-07-07T12:45:00.000Z',
+  });
+
+  assert.equal(settled.action, 'created_ad_hoc_note');
+  assert.equal(settled.coreMemoryPromotion.targetPath, 'memory_summary.md');
+  assert.equal(settled.coreMemoryPromotion.action, 'review_update_core_memory');
+  assert.match(settled.coreMemoryPromotion.draft.updatedContent, /Fix stop hook capture/);
+  assert.match(settled.coreMemoryPromotion.draft.updatedContent, /sidecar\/stop-hook\.js/);
+});
+
+  assert.equal(draft.coreMemoryPromotion.targetPath, 'memory_summary.md');
+  assert.equal(draft.coreMemoryPromotion.action, 'review_update_core_memory');
+  assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Session continuity update/);
+  assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Added session note draft orchestration and overlap checks\./);
+});
+
+test('codexContinuitySettleAdHocNote returns a core-memory promotion draft for stable outcomes', () => {
+  const memoriesRoot = makeTempMemoriesRoot();
+  writeFile(memoriesRoot, 'memory_summary.md', '# Memory Summary\n\nExisting project summary.\n');
+
+  const runtime = createRuntime({ memoriesRoot });
+  const settled = codexContinuitySettleAdHocNote(runtime, {
+    title: 'Fix stop hook capture',
+    type: 'bugfix',
+    cwd: 'e:/VSCodeSpace/play/codex-continuity',
+    paths: ['sidecar/stop-hook.js', 'hooks/hooks.json'],
+    content: 'Fixed Stop hook capture for sidecar/stop-hook.js and hooks/hooks.json so final session outcomes settle reliably.',
+    timestamp: '2026-07-07T12:45:00.000Z',
+  });
+
+  assert.equal(settled.action, 'created_ad_hoc_note');
+  assert.equal(settled.coreMemoryPromotion.targetPath, 'memory_summary.md');
+  assert.equal(settled.coreMemoryPromotion.action, 'review_update_core_memory');
+  assert.match(settled.coreMemoryPromotion.draft.updatedContent, /Fix stop hook capture/);
+  assert.match(settled.coreMemoryPromotion.draft.updatedContent, /sidecar\/stop-hook\.js/);
 });
