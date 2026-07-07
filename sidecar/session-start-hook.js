@@ -1,18 +1,20 @@
+const fs = require('fs');
 const path = require('path');
 
 const { createRuntime } = require('./runtime');
 const { codexContinuitySessionContext } = require('./session');
 
 function readStdin() {
-  return new Promise((resolve, reject) => {
-    let input = '';
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      input += chunk;
-    });
-    process.stdin.on('end', () => resolve(input));
-    process.stdin.on('error', reject);
-  });
+  try {
+    return fs.readFileSync(0, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function parseHookInput(raw) {
+  const normalized = String(raw || '').replace(/^\uFEFF/, '').trim();
+  return normalized ? JSON.parse(normalized) : {};
 }
 
 function success(additionalContext) {
@@ -63,8 +65,9 @@ function queryFromInput(input) {
 
 async function main() {
   try {
-    const raw = await readStdin();
-    const input = raw.trim() ? JSON.parse(raw) : {};
+    const input = parseHookInput(readStdin());
+    const sessionId = input.session_id || input.sessionId;
+    const cwd = String(input.cwd || '').trim();
     const query = queryFromInput(input);
     if (!query) {
       process.stdout.write(JSON.stringify(success(null)) + '\n');
@@ -74,9 +77,9 @@ async function main() {
     const runtime = createRuntime();
     const context = codexContinuitySessionContext(runtime, {
       query,
-      cwd: String(input.cwd || '').trim(),
+      cwd,
       limit: 2,
-      exclude_thread_id: input.session_id,
+      exclude_thread_id: sessionId,
     });
     process.stdout.write(JSON.stringify(success(formatSessionContext(context))) + '\n');
   } catch {
@@ -87,9 +90,10 @@ async function main() {
 if (require.main === module) {
   main();
 }
-
 module.exports = {
   formatSessionContext,
+  parseHookInput,
   queryFromInput,
   success,
 };
+

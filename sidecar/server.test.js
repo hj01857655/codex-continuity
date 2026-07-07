@@ -370,6 +370,66 @@ test('user prompt submit hook emits read-only prior session context and excludes
   assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /Current prompt context/);
 });
 
+test('session start hook accepts BOM-prefixed JSON input', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const previousThreadId = '00000000-0000-0000-0000-000000000311';
+
+  writeJsonl(codexHome, 'session_index.jsonl', [
+    { id: previousThreadId, thread_name: 'Prior startup context', updated_at: '2026-07-06T15:00:00Z' },
+  ]);
+  writeJsonl(codexHome, 'history.jsonl', [
+    { session_id: previousThreadId, ts: 1783350600, text: 'prior startup context should still parse with BOM input' },
+  ]);
+  writeJsonl(codexHome, 'sessions/2026/07/06/startup-bom.jsonl', [
+    { type: 'session_meta', id: previousThreadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Prior startup context survives BOM-prefixed stdin.' }] } },
+  ]);
+
+  const hookPath = path.join(__dirname, 'session-start-hook.js');
+  const result = spawnSync(process.execPath, [hookPath], {
+    input: `\uFEFF${JSON.stringify({ cwd: 'e:/VSCodeSpace/play/codex-continuity', session_id: '00000000-0000-0000-0000-000000000399' })}`,
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.continue, true);
+  assert.equal(output.suppressOutput, true);
+  assert.equal(output.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(output.hookSpecificOutput.additionalContext, /Prior startup context/);
+});
+
+test('user prompt submit hook accepts BOM-prefixed JSON input', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const previousThreadId = '00000000-0000-0000-0000-000000000411';
+
+  writeJsonl(codexHome, 'session_index.jsonl', [
+    { id: previousThreadId, thread_name: 'Prior prompt context', updated_at: '2026-07-06T16:00:00Z' },
+  ]);
+  writeJsonl(codexHome, 'history.jsonl', [
+    { session_id: previousThreadId, ts: 1783354200, text: 'prior prompt context should still parse with BOM input' },
+  ]);
+  writeJsonl(codexHome, 'sessions/2026/07/06/prompt-bom.jsonl', [
+    { type: 'session_meta', id: previousThreadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Prior prompt context survives BOM-prefixed stdin.' }] } },
+  ]);
+
+  const hookPath = path.join(__dirname, 'user-prompt-submit-hook.js');
+  const result = spawnSync(process.execPath, [hookPath], {
+    input: `\uFEFF${JSON.stringify({ cwd: 'e:/VSCodeSpace/play/codex-continuity', session_id: '00000000-0000-0000-0000-000000000499', prompt: 'prompt context with bom' })}`,
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.continue, true);
+  assert.equal(output.suppressOutput, true);
+  assert.equal(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.match(output.hookSpecificOutput.additionalContext, /Prior prompt context/);
+});
+
 test('user prompt submit hook fails open on invalid input', () => {
   const hookPath = path.join(__dirname, 'user-prompt-submit-hook.js');
   const result = spawnSync(process.execPath, [hookPath], {
