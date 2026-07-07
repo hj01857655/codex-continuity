@@ -78,6 +78,7 @@ async function main() {
       exclude_thread_id: sessionId,
       context_mode: 'hook',
       include_rollouts: false,
+      require_cwd_match: true,
     });
     process.stdout.write(JSON.stringify(success(formatSessionContext(context))) + '\n');
   } catch {

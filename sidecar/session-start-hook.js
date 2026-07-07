@@ -61,8 +61,7 @@ function writeHookHealthMarker(runtime) {
 
 function queryFromInput(input) {
   const cwd = String(input.cwd || '').trim();
-  const project = cwd ? path.basename(cwd.replace(/\\/g, '/')) : '';
-  return [project, 'recent decisions root cause session context'].filter(Boolean).join(' ');
+  return cwd ? path.basename(cwd.replace(/\\/g, '/')) : '';
 }
 
 async function main() {
@@ -85,6 +84,7 @@ async function main() {
       exclude_thread_id: sessionId,
       context_mode: 'hook',
       include_rollouts: false,
+      require_cwd_match: true,
     });
     process.stdout.write(JSON.stringify(success(formatSessionContext(context))) + '\n');
   } catch {
