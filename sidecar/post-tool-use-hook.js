@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 const { createRuntime } = require('./runtime');
-const { codexContinuityRawArchive } = require('./session');
+const { codexContinuityRawArchive, codexContinuityWriteHealthSnapshot } = require('./session');
 
 function readStdin() {
   try {
@@ -26,6 +26,7 @@ function success() {
 function archiveRawRollouts(runtime) {
   try {
     codexContinuityRawArchive(runtime, { limit: 10000 });
+    codexContinuityWriteHealthSnapshot(runtime, { eventName: 'PostToolUse' });
   } catch {
     // Fail open: continuity backup must never block tool completion.
   }

@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { createRuntime } = require('./runtime');
-const { codexContinuityRawArchive, codexContinuitySessionContext } = require('./session');
+const { codexContinuityRawArchive, codexContinuitySessionContext, codexContinuityWriteHealthSnapshot } = require('./session');
 
 function readStdin() {
   try {
@@ -54,6 +54,7 @@ function formatSessionContext(context) {
 function archiveRawRollouts(runtime) {
   try {
     codexContinuityRawArchive(runtime, { limit: 10000 });
+    codexContinuityWriteHealthSnapshot(runtime, { eventName: 'SessionStart' });
   } catch {
     // Fail open: continuity backup must never block Codex startup.
   }

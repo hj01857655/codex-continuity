@@ -318,6 +318,78 @@ function duplicateValues(values) {
   return [...duplicates].sort();
 }
 
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function newestFile(files) {
+  return files
+    .map((filePath) => ({ filePath, stat: safeStat(filePath) }))
+    .filter((entry) => entry.stat?.isFile())
+    .sort((left, right) => right.stat.mtimeMs - left.stat.mtimeMs)[0] || null;
+}
+
+function pluginRuntimeInfo(runtime) {
+  const pluginRoot = path.resolve(__dirname, '..');
+  const manifest = readJsonFile(path.join(pluginRoot, '.codex-plugin', 'plugin.json'));
+  const serverEntrypoint = process.argv[1] ? path.resolve(process.argv[1]) : null;
+  const normalizedServer = String(serverEntrypoint || '').replace(/\\/g, '/').toLowerCase();
+  const source = normalizedServer.includes('/plugins/cache/')
+    ? 'plugin-cache'
+    : normalizedServer.includes('/codex-continuity/')
+      ? 'source-or-global-launcher'
+      : 'unknown';
+
+  return {
+    pluginVersion: manifest?.version || null,
+    pluginRoot,
+    serverEntrypoint,
+    source,
+    codexHome: runtime.codexHome,
+    memoriesRoot: runtime.memoriesRoot,
+  };
+}
+
+function archiveObservability(runtime) {
+  const root = archiveRoot(runtime);
+  const manifestPath = path.join(root, 'manifest.json');
+  const manifest = readJsonFile(manifestPath);
+  const latestArchive = newestFile(listJsonlFiles(root));
+  return {
+    archiveRoot: path.relative(runtime.codexHome, root).replace(/\\/g, '/'),
+    manifestPath: safeStat(manifestPath)?.isFile() ? path.relative(runtime.codexHome, manifestPath).replace(/\\/g, '/') : null,
+    lastArchivedAt: manifest?.archivedAt || null,
+    lastArchiveCounts: manifest?.counts || null,
+    latestArchivedFile: latestArchive ? {
+      path: path.relative(runtime.codexHome, latestArchive.filePath).replace(/\\/g, '/'),
+      updatedAt: latestArchive.stat.mtime.toISOString(),
+      sizeBytes: latestArchive.stat.size,
+    } : null,
+  };
+}
+
+function checkpointObservability(runtime) {
+  const notesDir = path.join(runtime.memoriesRoot, 'extensions', 'ad_hoc', 'notes');
+  const files = safeStat(notesDir)?.isDirectory()
+    ? fs.readdirSync(notesDir)
+      .filter((name) => name.endsWith('.md') && name.includes('pre-compact-codex-checkpoint'))
+      .map((name) => path.join(notesDir, name))
+    : [];
+  const latest = newestFile(files);
+  return {
+    notesDir: path.relative(runtime.memoriesRoot, notesDir).replace(/\\/g, '/'),
+    latestPreCompactCheckpoint: latest ? {
+      path: path.relative(runtime.memoriesRoot, latest.filePath).replace(/\\/g, '/'),
+      updatedAt: latest.stat.mtime.toISOString(),
+      sizeBytes: latest.stat.size,
+    } : null,
+  };
+}
+
 function codexContinuitySessionHealth(runtime, args = {}) {
   const limit = Math.max(1, Math.min(Number(args.limit) || 20, 100));
   const entries = rolloutInventoryEntries(runtime);
@@ -335,9 +407,19 @@ function codexContinuitySessionHealth(runtime, args = {}) {
   if (missingSessionIndex.length) issues.push({ type: 'missing_session_index_entry', count: missingSessionIndex.length, samples: missingSessionIndex.slice(0, limit).map((entry) => ({ threadId: entry.threadId, path: entry.path })) });
   if (indexedWithoutRollout.length) issues.push({ type: 'session_index_without_rollout', count: indexedWithoutRollout.length, samples: indexedWithoutRollout.slice(0, limit) });
 
+  const archive = archiveObservability(runtime);
+  if (!archive.lastArchivedAt && entries.length) {
+    issues.push({ type: 'raw_archive_missing', count: 1, samples: ['codex-continuity/raw_archive/manifest.json'] });
+  }
+
   return {
     status: issues.length ? 'warning' : 'ok',
     checkedAt: new Date().toISOString(),
+    runtime: pluginRuntimeInfo(runtime),
+    observability: {
+      archive,
+      checkpoint: checkpointObservability(runtime),
+    },
     counts: {
       total: entries.length,
       active: entries.filter((entry) => !entry.archived).length,
@@ -347,6 +429,7 @@ function codexContinuitySessionHealth(runtime, args = {}) {
       duplicateThreadIds: duplicateThreadIds.length,
       missingSessionIndex: missingSessionIndex.length,
       indexedWithoutRollout: indexedWithoutRollout.length,
+      rawArchiveMissing: archive.lastArchivedAt || !entries.length ? 0 : 1,
     },
     issues,
   };
@@ -365,6 +448,18 @@ function copyIfChanged(source, target) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, sourceBytes);
   return existing ? 'updated' : 'created';
+}
+
+function codexContinuityWriteHealthSnapshot(runtime, args = {}) {
+  const snapshot = {
+    ...codexContinuitySessionHealth(runtime, args),
+    eventName: args.eventName || args.event_name || null,
+    writtenAt: new Date().toISOString(),
+  };
+  const target = path.join(runtime.codexHome, 'codex-continuity', 'health.json');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+  return snapshot;
 }
 
 function codexContinuityRawArchive(runtime, args = {}) {
@@ -530,6 +625,7 @@ function codexContinuitySessionDigest(runtime, args = {}) {
 }
 
 module.exports = {
+  codexContinuityWriteHealthSnapshot,
   codexContinuityRawArchive,
   codexContinuitySessionHealth,
   codexContinuitySessionInventory,

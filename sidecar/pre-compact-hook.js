@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 const { createRuntime } = require('./runtime');
-const { codexContinuityRawArchive } = require('./session');
+const { codexContinuityRawArchive, codexContinuityWriteHealthSnapshot } = require('./session');
 const { codexContinuityWriteAdHocNote } = require('./tools');
 
 function readStdin() {
@@ -41,6 +41,7 @@ function readTranscriptTail(transcriptPath, maxChars = 12000) {
 function archiveRawRollouts(runtime) {
   try {
     codexContinuityRawArchive(runtime, { limit: 10000 });
+    codexContinuityWriteHealthSnapshot(runtime, { eventName: 'PreCompact' });
   } catch {
     // Fail open: continuity backup must never block compaction.
   }

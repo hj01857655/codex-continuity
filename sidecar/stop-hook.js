@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 const { createRuntime } = require('./runtime');
-const { codexContinuityRawArchive } = require('./session');
+const { codexContinuityRawArchive, codexContinuityWriteHealthSnapshot } = require('./session');
 const { codexContinuitySettleAdHocNote } = require('./tools');
 
 function readStdin() {
@@ -64,6 +64,7 @@ function readTranscriptTail(transcriptPath, maxChars = 12000) {
 function archiveRawRollouts(runtime) {
   try {
     codexContinuityRawArchive(runtime, { limit: 10000 });
+    codexContinuityWriteHealthSnapshot(runtime, { eventName: 'Stop' });
   } catch {
     // Fail open: continuity backup must never block stop handling.
   }
@@ -76,6 +77,30 @@ function firstMeaningfulLine(text) {
     .find(Boolean) || 'Codex session outcome';
 }
 
+function normalizedSignalText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[`*_#>\-[\]().,:;!?]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isLowSignalStopOutcome({ lastAssistantMessage, transcriptTail, paths }) {
+  const direct = normalizedSignalText(lastAssistantMessage);
+  const source = normalizedSignalText([lastAssistantMessage, transcriptTail].filter(Boolean).join(' '));
+  const words = source ? source.split(' ').filter(Boolean) : [];
+  const lowSignalDirect = /^(ok|okay|好的|好|行|可以|done|fixed|已完成|完成|没问题|no problem)$/i.test(direct);
+  const hasOutcomeSignal = /(root cause|decision|fix|fixed|resolved|changed|added|updated|implemented|regression|bug|error|failed|failure|修复|原因|决策|实现|新增|更新|完成了|解决)/i.test(source);
+
+  if (paths.length > 0 || hasOutcomeSignal) {
+    return false;
+  }
+  if (lowSignalDirect) {
+    return true;
+  }
+  return words.length > 0 && words.length < 8;
+}
+
 function buildStopNote(input) {
   const lastAssistantMessage = String(input.last_assistant_message || input.lastAssistantMessage || '').trim();
   const transcriptTail = readTranscriptTail(input.transcript_path || input.transcriptPath);
@@ -85,15 +110,19 @@ function buildStopNote(input) {
 
   const sessionId = String(input.session_id || input.sessionId || '').trim();
   const cwd = String(input.cwd || '').trim();
-  const title = firstMeaningfulLine(lastAssistantMessage || transcriptTail).slice(0, 120);
   const sourceText = [lastAssistantMessage, transcriptTail].filter(Boolean).join('\n');
+  const paths = extractRelatedPaths(sourceText);
+  if (isLowSignalStopOutcome({ lastAssistantMessage, transcriptTail, paths })) {
+    return null;
+  }
+
+  const title = firstMeaningfulLine(lastAssistantMessage || transcriptTail).slice(0, 120);
   const metadata = [
     sessionId ? `- session: ${sessionId}` : null,
     cwd ? `- cwd: ${cwd}` : null,
     transcriptTail ? '- source: transcript_path' : '- source: last_assistant_message',
     '- type: stop-hook',
   ].filter(Boolean).join('\n');
-  const paths = extractRelatedPaths(sourceText);
   const pathLines = paths.length
     ? paths.map((item) => `- \`${item}\``).join('\n')
     : '- No specific files identified.';
@@ -145,6 +174,8 @@ module.exports = {
   buildPromotionMessage,
   buildStopNote,
   extractRelatedPaths,
+  isLowSignalStopOutcome,
+  normalizedSignalText,
   parseHookInput,
   readTranscriptTail,
   success,

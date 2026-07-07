@@ -101,6 +101,29 @@ function normalizePaths(paths) {
   return uniq((paths || []).map((value) => String(value).replace(/\\/g, '/')));
 }
 
+function normalizedMemorySignal(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[`*_#>\-[\]().,:;!?]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isLowSignalMemoryContent({ title, content, paths }) {
+  const direct = normalizedMemorySignal([title, content].filter(Boolean).join(' '));
+  const words = direct ? direct.split(' ').filter(Boolean) : [];
+  const lowSignal = /^(ok|okay|好的|好|行|可以|done|fixed|已完成|完成|没问题|no problem)$/i.test(direct);
+  const hasOutcomeSignal = /(root cause|decision|fix|fixed|resolved|changed|added|updated|implemented|regression|bug|error|failed|failure|修复|原因|决策|实现|新增|更新|完成了|解决)/i.test(direct);
+
+  if ((paths || []).length > 0 || hasOutcomeSignal) {
+    return false;
+  }
+  if (lowSignal) {
+    return true;
+  }
+  return words.length > 0 && words.length < 8;
+}
+
 function buildSettlingRecommendation(overlap) {
   const recommendation = overlap.recommendation || {};
   const primaryMatch = recommendation.primaryMatch || null;
@@ -459,6 +482,14 @@ function codexContinuitySettleAdHocNote(runtime, args = {}) {
   }
   const cwd = String(args.cwd || '').trim();
   const paths = normalizePaths(args.paths || []);
+  if (isLowSignalMemoryContent({ title, content, paths })) {
+    return {
+      action: 'skipped_low_signal_note',
+      reason: 'content_lacks_durable_memory_signal',
+      title,
+      pathCount: paths.length,
+    };
+  }
   const noteType = String(args.type || 'session').trim() || 'session';
   const heading = String(args.heading || 'Update').trim() || 'Update';
   const timestamp = String(args.timestamp || new Date().toISOString()).trim();
@@ -647,11 +678,11 @@ function createToolRegistry(runtime) {
       run: (args) => codexContinuitySessionInventory(runtime, args),
     },
     codex_continuity_session_health: {
-      description: 'Check Codex rollout health across sessions/ and archived_sessions/: malformed files, duplicate thread ids, and session-index mismatches.',
+      description: 'Check Codex rollout health and continuity observability across sessions/ and archived_sessions/: malformed files, duplicate thread ids, session-index mismatches, current server runtime, recent raw archive, and pre-compact checkpoint evidence.',
       inputSchema: {
         type: 'object',
         properties: {
-          limit: { type: 'number', description: 'Max issue samples per category (1-100).' },
+          limit: { type: 'number', description: 'Max issue/observability samples per category (1-100).' },
         },
         additionalProperties: false,
       },

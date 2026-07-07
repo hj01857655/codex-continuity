@@ -34,9 +34,12 @@ function writeFile(root, relativePath, content) {
   fs.writeFileSync(fullPath, content, 'utf8');
   return fullPath;
 }
-
 function writeJsonl(root, relativePath, records) {
   writeFile(root, relativePath, records.map((record) => JSON.stringify(record)).join('\n') + '\n');
+}
+
+function readHealthSnapshot(codexHome) {
+  return JSON.parse(fs.readFileSync(path.join(codexHome, 'codex-continuity', 'health.json'), 'utf8'));
 }
 
 test('buildIndex persists and reuses index when files are unchanged', () => {
@@ -211,10 +214,45 @@ test('codexContinuitySessionHealth reports malformed rollouts and index mismatch
   assert.equal(health.status, 'warning');
   assert.equal(health.counts.malformed, 1);
   assert.equal(health.counts.missingSessionIndex, 1);
-  assert.equal(health.counts.indexedWithoutRollout, 1);
+  assert.equal(health.counts.rawArchiveMissing, 1);
+  assert.equal(health.runtime.pluginVersion, '0.1.6');
+  assert.equal(health.observability.archive.lastArchivedAt, null);
+  assert.equal(health.issues.some((issue) => issue.type === 'raw_archive_missing'), true);
   assert.equal(health.issues.some((issue) => issue.type === 'malformed_rollout'), true);
   assert.equal(health.issues.some((issue) => issue.type === 'missing_session_index_entry'), true);
   assert.equal(health.issues.some((issue) => issue.type === 'session_index_without_rollout'), true);
+});
+
+test('codexContinuitySessionHealth reports runtime and archive observability after automatic backup', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const threadId = '00000000-0000-0000-0000-000000000707';
+
+  writeJsonl(codexHome, 'session_index.jsonl', [
+    { id: threadId, thread_name: 'Observable archive', updated_at: '2026-07-07T10:00:00Z' },
+  ]);
+  writeJsonl(codexHome, 'sessions/2026/07/07/observable.jsonl', [
+    { type: 'session_meta', id: threadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Observable archive fact.' }] } },
+  ]);
+  writeFile(
+    codexHome,
+    'memories/extensions/ad_hoc/notes/2026-07-07T10-00-00-pre-compact-codex-checkpoint.md',
+    '# Pre-compact Codex checkpoint\n\nCheckpoint fact.\n',
+  );
+
+  const runtime = createRuntime({ codexHome, memoriesRoot: path.join(codexHome, 'memories') });
+  codexContinuityRawArchive(runtime, { limit: 10 });
+  const health = codexContinuitySessionHealth(runtime, { limit: 10 });
+
+  assert.equal(health.status, 'ok');
+  assert.equal(health.runtime.pluginVersion, '0.1.6');
+  assert.match(health.runtime.serverEntrypoint, /server\.test\.js$/);
+  assert.match(health.runtime.pluginRoot.replace(/\\/g, '/'), /codex-continuity$/);
+  assert.match(health.observability.archive.lastArchivedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(health.observability.archive.lastArchiveCounts.scanned, 1);
+  assert.match(health.observability.archive.latestArchivedFile.path, /codex-continuity\/raw_archive\/sessions\/2026\/07\/07\/observable\.jsonl$/);
+  assert.match(health.observability.checkpoint.latestPreCompactCheckpoint.path, /pre-compact-codex-checkpoint\.md$/);
+  assert.equal(health.counts.rawArchiveMissing, 0);
 });
 
 test('codexContinuityRawArchive copies active and archived rollout files as raw backup', () => {
@@ -441,6 +479,9 @@ test('session start hook emits read-only prior session context and excludes the 
   assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /Current startup context/);
   assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/06/startup-previous.jsonl')), true);
   assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/06/startup-current.jsonl')), true);
+  const health = readHealthSnapshot(codexHome);
+  assert.equal(health.eventName, 'SessionStart');
+  assert.match(health.observability.archive.lastArchivedAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test('user prompt submit hook emits prior session context without writing process memory', () => {
@@ -490,6 +531,9 @@ test('user prompt submit hook emits prior session context without writing proces
   assert.equal(fs.existsSync(notesDir), false);
   assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/06/previous.jsonl')), true);
   assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/06/current.jsonl')), true);
+  const health = readHealthSnapshot(codexHome);
+  assert.equal(health.eventName, 'UserPromptSubmit');
+  assert.match(health.observability.archive.lastArchivedAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test('session start hook accepts BOM-prefixed JSON input', () => {
@@ -556,6 +600,9 @@ test('pre compact hook writes a legal ad-hoc checkpoint from the Codex transcrip
   assert.match(note, /original transcript\/rollout remains the full-fidelity source/);
   assert.match(note, /process memory must update during long sessions/);
   assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/transcript.jsonl')), true);
+  const health = readHealthSnapshot(codexHome);
+  assert.equal(health.eventName, 'PreCompact');
+  assert.match(health.observability.archive.lastArchivedAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test('user prompt submit hook accepts BOM-prefixed JSON input', () => {
@@ -613,6 +660,9 @@ test('post tool use hook archives raw rollouts automatically after tool completi
   const archived = path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/post-tool.jsonl');
   assert.equal(fs.existsSync(archived), true);
   assert.match(fs.readFileSync(archived, 'utf8'), /Tool execution produced a fact/);
+  const health = readHealthSnapshot(codexHome);
+  assert.equal(health.eventName, 'PostToolUse');
+  assert.match(health.observability.archive.latestArchivedFile.path, /post-tool\.jsonl$/);
 });
 
 test('post compact hook archives raw rollouts automatically after compaction', () => {
@@ -637,6 +687,9 @@ test('post compact hook archives raw rollouts automatically after compaction', (
   const archived = path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/post-compact.jsonl');
   assert.equal(fs.existsSync(archived), true);
   assert.match(fs.readFileSync(archived, 'utf8'), /Compacted session fact/);
+  const health = readHealthSnapshot(codexHome);
+  assert.equal(health.eventName, 'PostCompact');
+  assert.match(health.observability.archive.latestArchivedFile.path, /post-compact\.jsonl$/);
 });
 
 test('user prompt submit hook fails open on invalid input', () => {
@@ -651,6 +704,35 @@ test('user prompt submit hook fails open on invalid input', () => {
   assert.equal(output.continue, true);
   assert.equal(output.suppressOutput, true);
   assert.equal(output.hookSpecificOutput, undefined);
+});
+
+test('stop hook skips low-signal acknowledgements while still archiving raw rollouts', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  writeJsonl(codexHome, 'sessions/2026/07/07/low-signal-stop.jsonl', [
+    { type: 'session_meta', id: '00000000-0000-0000-0000-000000000559', cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Low signal acknowledgement should not become memory.' }] } },
+  ]);
+
+  const result = spawnSync(process.execPath, [path.join(__dirname, 'stop-hook.js')], {
+    input: JSON.stringify({
+      session_id: '00000000-0000-0000-0000-000000000559',
+      cwd: 'e:/VSCodeSpace/play/codex-continuity',
+      last_assistant_message: 'ok',
+    }),
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.continue, true);
+  assert.equal(output.suppressOutput, true);
+  assert.equal(output.systemMessage, undefined);
+  assert.equal(fs.existsSync(path.join(codexHome, 'memories', 'extensions', 'ad_hoc', 'notes')), false);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/low-signal-stop.jsonl')), true);
+  const health = readHealthSnapshot(codexHome);
+  assert.equal(health.eventName, 'Stop');
+  assert.match(health.observability.archive.latestArchivedFile.path, /low-signal-stop\.jsonl$/);
 });
 
 test('stop hook settles the final assistant message plus transcript tail into an ad-hoc note and surfaces a core-memory promotion draft', () => {
@@ -691,6 +773,9 @@ test('stop hook settles the final assistant message plus transcript tail into an
   assert.match(note, /sidecar\/pre-compact-hook\.js/);
   assert.match(note, /hooks\/hooks\.json/);
   assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/stop-transcript.jsonl')), true);
+  const health = readHealthSnapshot(codexHome);
+  assert.equal(health.eventName, 'Stop');
+  assert.match(health.observability.archive.latestArchivedFile.path, /stop-transcript\.jsonl$/);
 });
 
 test('stop hook accepts BOM-prefixed JSON input', () => {
@@ -885,6 +970,21 @@ test('codexContinuitySessionNoteDraft builds a capture note draft, overlap recom
   assert.equal(draft.coreMemoryPromotion.action, 'review_update_core_memory');
   assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Session continuity update/);
   assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Added session note draft orchestration and overlap checks\./);
+});
+
+test('codexContinuitySettleAdHocNote skips low-signal acknowledgement content', () => {
+  const memoriesRoot = makeTempMemoriesRoot();
+  const runtime = createRuntime({ memoriesRoot });
+  const settled = codexContinuitySettleAdHocNote(runtime, {
+    title: 'ok',
+    cwd: 'e:/VSCodeSpace/play/codex-continuity',
+    content: 'ok',
+    timestamp: '2026-07-07T12:40:00.000Z',
+  });
+
+  assert.equal(settled.action, 'skipped_low_signal_note');
+  assert.equal(settled.reason, 'content_lacks_durable_memory_signal');
+  assert.equal(fs.existsSync(path.join(memoriesRoot, 'extensions', 'ad_hoc', 'notes')), false);
 });
 
 test('codexContinuitySettleAdHocNote returns a core-memory promotion draft for stable outcomes', () => {

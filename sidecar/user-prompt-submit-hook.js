@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 const { createRuntime } = require('./runtime');
-const { codexContinuityRawArchive, codexContinuitySessionContext } = require('./session');
+const { codexContinuityRawArchive, codexContinuitySessionContext, codexContinuityWriteHealthSnapshot } = require('./session');
 
 function readStdin() {
   try {
@@ -44,6 +44,7 @@ function formatDigestBlock(digest) {
 function archiveRawRollouts(runtime) {
   try {
     codexContinuityRawArchive(runtime, { limit: 10000 });
+    codexContinuityWriteHealthSnapshot(runtime, { eventName: 'UserPromptSubmit' });
   } catch {
     // Fail open: continuity backup must never block prompt submission.
   }

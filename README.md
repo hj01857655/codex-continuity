@@ -138,7 +138,7 @@ codex plugin add codex-continuity@codex-continuity-marketplace
 The source repository also exposes the plugin directly by release tag:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.5
+codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.6
 codex plugin add codex-continuity@codex-continuity
 ```
 
@@ -187,7 +187,7 @@ Implemented:
 - memory overlap recommendations
 - Codex session search across session index, prompt history, and rollout files
 - session inventory across `~/.codex/sessions/` and `~/.codex/archived_sessions/`
-- session health checks for malformed rollout files, duplicate thread ids, and session-index mismatches
+- session health checks for malformed rollout files, duplicate thread ids, session-index mismatches, current server/runtime source, latest raw archive, latest pre-compact checkpoint evidence, and automatically refreshed `~/.codex/codex-continuity/health.json` snapshots
 - automatic raw rollout archive under `~/.codex/codex-continuity/raw_archive/` for strict no-loss backup, triggered by `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`, and also exposed as `codex_continuity_raw_archive` for diagnostics/backfill
 - session digest generation and hydrated session-search digests
 - workflow-level session context loading
@@ -222,9 +222,13 @@ The no-loss hardening layer has three implemented parts:
    - treat `sessions/` as active and `archived_sessions/` as archived, matching Codex rollout behavior
 2. `codex_continuity_session_health`
    - report unreadable files, malformed rollout files, duplicate thread ids, and session-index mismatches
-   - verify recent sessions are searchable through the sidecar
+   - expose `runtime.pluginVersion`, `runtime.serverEntrypoint`, and `runtime.source` so resumed sessions can verify the current MCP/server path
+   - expose latest raw archive manifest/file evidence and latest pre-compact checkpoint note evidence
+   - read the same observability shape that hooks refresh into `~/.codex/codex-continuity/health.json` after automatic archive runs
+   - remain callable as an MCP diagnostics/smoke-check tool when manual verification is needed
 3. `codex_continuity_raw_archive`
    - runs automatically from `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`
+   - refreshes `~/.codex/codex-continuity/health.json` from those automatic hook runs
    - remains callable as an MCP diagnostics/backfill tool
    - copy raw rollout files as backup
    - preserve active/archived state
