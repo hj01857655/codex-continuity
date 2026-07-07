@@ -117,17 +117,17 @@ This repository can also act as its own Codex marketplace source:
 /plugin install codex-continuity@codex-continuity
 ```
 
-For non-interactive CLI installation, use the verified Codex commands pinned to the `v0.1.1` release tag:
+For non-interactive CLI installation, use the verified Codex commands pinned to the `v0.1.2` release tag:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity-marketplace --ref v0.1.1
+codex plugin marketplace add hj01857655/codex-continuity-marketplace --ref v0.1.2
 codex plugin add codex-continuity@codex-continuity-marketplace
 ```
 
 The source repository also exposes the same release tag directly:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.1
+codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.2
 codex plugin add codex-continuity@codex-continuity
 ```
 
@@ -182,7 +182,8 @@ Implemented:
 - fail-open `Stop` hook for ad-hoc memory settling
 - explicit `MEMORY.md` / `memory_summary.md` update flow with review + hash protection
 - reviewed old-note update flow with `codex_continuity_note_update_draft` and hash-protected `codex_continuity_note_update_apply`
-- session digest to ad-hoc note draft generation with overlap and `settling` guidance
+- session digest to ad-hoc note draft generation with overlap, `settling` guidance, and reviewable `coreMemoryPromotion` drafts
+- Stop-hook settling that can surface reviewable core-memory promotion guidance through `systemMessage` without silently writing durable memory
 - lifecycle hook tests for startup context injection, prompt-time context injection, stop-time note settling, fail-open behavior, and BOM-prefixed hook stdin compatibility
 - install/runtime-copy validation for the same hook input contract used by real Codex hook invocations
 - capture/retrieval skills that prefer digest-shaped prior session context
