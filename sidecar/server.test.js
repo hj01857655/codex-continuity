@@ -4,7 +4,6 @@ const fs = require('fs');
 const { spawnSync } = require('child_process');
 const os = require('os');
 const path = require('path');
-
 const {
   createRuntime,
   buildIndex,
@@ -14,7 +13,11 @@ const {
   codexContinuityOverlap,
   codexContinuityNoteUpdateApply,
   codexContinuityNoteUpdateDraft,
+  codexContinuitySettleAdHocNote,
   queryDocuments,
+  codexContinuityRawArchive,
+  codexContinuitySessionHealth,
+  codexContinuitySessionInventory,
   codexContinuitySessionSearch,
   codexContinuitySessionDigest,
   codexContinuitySessionContext,
@@ -165,6 +168,81 @@ test('queryDocuments breaks ties with full cwd path hints when note content is o
   });
 
   assert.equal(result.hits[0].path, 'extensions/ad_hoc/notes/2026-07-06T10-20-00-right-project.md');
+});
+
+test('codexContinuitySessionInventory separates active and archived rollout files', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const activeId = '00000000-0000-0000-0000-000000000701';
+  const archivedId = '00000000-0000-0000-0000-000000000702';
+
+  writeJsonl(codexHome, 'sessions/2026/07/07/active.jsonl', [
+    { type: 'session_meta', id: activeId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+  ]);
+  writeJsonl(codexHome, 'archived_sessions/2026/07/06/archived.jsonl', [
+    { type: 'session_meta', id: archivedId, cwd: 'e:/VSCodeSpace/play/ai-gateway' },
+  ]);
+
+  const runtime = createRuntime({ codexHome, memoriesRoot: path.join(codexHome, 'memories') });
+  const inventory = codexContinuitySessionInventory(runtime, { limit: 10 });
+
+  assert.equal(inventory.counts.total, 2);
+  assert.equal(inventory.counts.active, 1);
+  assert.equal(inventory.counts.archived, 1);
+  assert.equal(inventory.entries.find((entry) => entry.threadId === activeId).archived, false);
+  assert.equal(inventory.entries.find((entry) => entry.threadId === archivedId).archived, true);
+});
+
+test('codexContinuitySessionHealth reports malformed rollouts and index mismatches', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const indexedOnlyId = '00000000-0000-0000-0000-000000000703';
+  const rolloutOnlyId = '00000000-0000-0000-0000-000000000704';
+
+  writeJsonl(codexHome, 'session_index.jsonl', [
+    { id: indexedOnlyId, thread_name: 'Indexed without rollout', updated_at: '2026-07-07T10:00:00Z' },
+  ]);
+  writeJsonl(codexHome, 'sessions/2026/07/07/rollout-only.jsonl', [
+    { type: 'session_meta', id: rolloutOnlyId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+  ]);
+  writeFile(codexHome, 'sessions/2026/07/07/malformed.jsonl', '{not json}\n');
+
+  const runtime = createRuntime({ codexHome, memoriesRoot: path.join(codexHome, 'memories') });
+  const health = codexContinuitySessionHealth(runtime, { limit: 10 });
+
+  assert.equal(health.status, 'warning');
+  assert.equal(health.counts.malformed, 1);
+  assert.equal(health.counts.missingSessionIndex, 1);
+  assert.equal(health.counts.indexedWithoutRollout, 1);
+  assert.equal(health.issues.some((issue) => issue.type === 'malformed_rollout'), true);
+  assert.equal(health.issues.some((issue) => issue.type === 'missing_session_index_entry'), true);
+  assert.equal(health.issues.some((issue) => issue.type === 'session_index_without_rollout'), true);
+});
+
+test('codexContinuityRawArchive copies active and archived rollout files as raw backup', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const activeId = '00000000-0000-0000-0000-000000000705';
+  const archivedId = '00000000-0000-0000-0000-000000000706';
+
+  writeJsonl(codexHome, 'sessions/2026/07/07/active.jsonl', [
+    { type: 'session_meta', id: activeId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Active rollout fact.' }] } },
+  ]);
+  writeJsonl(codexHome, 'archived_sessions/2026/07/06/archived.jsonl', [
+    { type: 'session_meta', id: archivedId, cwd: 'e:/VSCodeSpace/play/ai-gateway' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Archived rollout fact.' }] } },
+  ]);
+
+  const runtime = createRuntime({ codexHome, memoriesRoot: path.join(codexHome, 'memories') });
+  const archive = codexContinuityRawArchive(runtime, { limit: 10 });
+
+  assert.equal(archive.counts.scanned, 2);
+  assert.equal(archive.counts.created, 2);
+  assert.equal(archive.counts.failed, 0);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/active.jsonl')), true);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/archived_sessions/2026/07/06/archived.jsonl')), true);
+  assert.match(fs.readFileSync(path.join(codexHome, 'codex-continuity/raw_archive/archived_sessions/2026/07/06/archived.jsonl'), 'utf8'), /Archived rollout fact/);
+
+  const second = codexContinuityRawArchive(runtime, { limit: 10 });
+  assert.equal(second.counts.unchanged, 2);
 });
 
 test('codexContinuitySessionSearch combines session index, prompt history, and rollout content', () => {
@@ -361,9 +439,11 @@ test('session start hook emits read-only prior session context and excludes the 
   assert.match(output.hookSpecificOutput.additionalContext, /- title: Prior startup context/);
   assert.match(output.hookSpecificOutput.additionalContext, /- summary: Prior startup decision: SessionStart should preload read-only context\./);
   assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /Current startup context/);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/06/startup-previous.jsonl')), true);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/06/startup-current.jsonl')), true);
 });
 
-test('user prompt submit hook emits read-only prior session context and excludes the current thread', () => {
+test('user prompt submit hook emits prior session context without writing process memory', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
   const previousThreadId = '00000000-0000-0000-0000-000000000111';
   const currentThreadId = '00000000-0000-0000-0000-000000000222';
@@ -405,6 +485,11 @@ test('user prompt submit hook emits read-only prior session context and excludes
   assert.match(output.hookSpecificOutput.additionalContext, /- title: Prior prompt context/);
   assert.match(output.hookSpecificOutput.additionalContext, /- summary: Prior decision: UserPromptSubmit hook stays read-only and uses additionalContext\./);
   assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /Current prompt context/);
+
+  const notesDir = path.join(codexHome, 'memories', 'extensions', 'ad_hoc', 'notes');
+  assert.equal(fs.existsSync(notesDir), false);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/06/previous.jsonl')), true);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/06/current.jsonl')), true);
 });
 
 test('session start hook accepts BOM-prefixed JSON input', () => {
@@ -438,6 +523,41 @@ test('session start hook accepts BOM-prefixed JSON input', () => {
   assert.match(output.hookSpecificOutput.additionalContext, /- title: Prior startup context/);
 });
 
+test('pre compact hook writes a legal ad-hoc checkpoint from the Codex transcript', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const transcriptPath = writeFile(
+    codexHome,
+    'sessions/2026/07/07/transcript.jsonl',
+    'User decided process memory must update during long sessions before compaction.\n',
+  );
+  const sessionId = '00000000-0000-0000-0000-000000000777';
+
+  const preResult = spawnSync(process.execPath, [path.join(__dirname, 'pre-compact-hook.js')], {
+    input: JSON.stringify({
+      session_id: sessionId,
+      turn_id: 'turn-pre',
+      cwd: 'e:/VSCodeSpace/play/codex-continuity',
+      transcript_path: transcriptPath,
+      trigger: 'auto',
+    }),
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(preResult.status, 0);
+  assert.equal(JSON.parse(preResult.stdout).continue, true);
+
+  const notesDir = path.join(codexHome, 'memories', 'extensions', 'ad_hoc', 'notes');
+  const noteFiles = fs.readdirSync(notesDir);
+  assert.equal(noteFiles.length, 1);
+  assert.match(noteFiles[0], /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-pre-compact-codex-checkpoint\.md$/);
+  const note = fs.readFileSync(path.join(notesDir, noteFiles[0]), 'utf8');
+  assert.match(note, /Pre-compact Codex checkpoint/);
+  assert.match(note, /original transcript\/rollout remains the full-fidelity source/);
+  assert.match(note, /process memory must update during long sessions/);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/transcript.jsonl')), true);
+});
+
 test('user prompt submit hook accepts BOM-prefixed JSON input', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
   const previousThreadId = '00000000-0000-0000-0000-000000000411';
@@ -468,6 +588,57 @@ test('user prompt submit hook accepts BOM-prefixed JSON input', () => {
   assert.match(output.hookSpecificOutput.additionalContext, /- title: Prior prompt context/);
 });
 
+test('post tool use hook archives raw rollouts automatically after tool completion', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  writeJsonl(codexHome, 'sessions/2026/07/07/post-tool.jsonl', [
+    { type: 'session_meta', id: '00000000-0000-0000-0000-000000000557', cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Tool execution produced a fact that must be archived automatically.' }] } },
+  ]);
+
+  const result = spawnSync(process.execPath, [path.join(__dirname, 'post-tool-use-hook.js')], {
+    input: JSON.stringify({
+      session_id: '00000000-0000-0000-0000-000000000557',
+      cwd: 'e:/VSCodeSpace/play/codex-continuity',
+      tool_name: 'edit_file',
+      tool_input: { path: 'sidecar/session.js' },
+      tool_response: { ok: true },
+      tool_use_id: 'tool-1',
+    }),
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(JSON.parse(result.stdout).continue, true);
+  const archived = path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/post-tool.jsonl');
+  assert.equal(fs.existsSync(archived), true);
+  assert.match(fs.readFileSync(archived, 'utf8'), /Tool execution produced a fact/);
+});
+
+test('post compact hook archives raw rollouts automatically after compaction', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  writeJsonl(codexHome, 'sessions/2026/07/07/post-compact.jsonl', [
+    { type: 'session_meta', id: '00000000-0000-0000-0000-000000000558', cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Compacted session fact should still be archived.' }] } },
+  ]);
+
+  const result = spawnSync(process.execPath, [path.join(__dirname, 'post-compact-hook.js')], {
+    input: JSON.stringify({
+      session_id: '00000000-0000-0000-0000-000000000558',
+      cwd: 'e:/VSCodeSpace/play/codex-continuity',
+      trigger: 'auto',
+    }),
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(JSON.parse(result.stdout).continue, true);
+  const archived = path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/post-compact.jsonl');
+  assert.equal(fs.existsSync(archived), true);
+  assert.match(fs.readFileSync(archived, 'utf8'), /Compacted session fact/);
+});
+
 test('user prompt submit hook fails open on invalid input', () => {
   const hookPath = path.join(__dirname, 'user-prompt-submit-hook.js');
   const result = spawnSync(process.execPath, [hookPath], {
@@ -482,15 +653,21 @@ test('user prompt submit hook fails open on invalid input', () => {
   assert.equal(output.hookSpecificOutput, undefined);
 });
 
-test('stop hook settles the final assistant message into an ad-hoc note and surfaces a core-memory promotion draft', () => {
+test('stop hook settles the final assistant message plus transcript tail into an ad-hoc note and surfaces a core-memory promotion draft', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
   writeFile(codexHome, 'memories/memory_summary.md', '# Memory Summary\n\nExisting project summary.\n');
+  const transcriptPath = writeFile(
+    codexHome,
+    'sessions/2026/07/07/stop-transcript.jsonl',
+    'Tool changed sidecar/pre-compact-hook.js before final response.\nIntermediate decision kept transcript as the full-fidelity source.\n',
+  );
 
   const hookPath = path.join(__dirname, 'stop-hook.js');
   const result = spawnSync(process.execPath, [hookPath], {
     input: JSON.stringify({
       session_id: '00000000-0000-0000-0000-000000000555',
       cwd: 'e:/VSCodeSpace/play/codex-continuity',
+      transcript_path: transcriptPath,
       last_assistant_message: 'Fixed Stop hook capture for sidecar/stop-hook.js and hooks/hooks.json.',
     }),
     encoding: 'utf8',
@@ -508,8 +685,45 @@ test('stop hook settles the final assistant message into an ad-hoc note and surf
   assert.equal(noteFiles.length, 1);
   const note = fs.readFileSync(path.join(notesDir, noteFiles[0]), 'utf8');
   assert.match(note, /Fixed Stop hook capture/);
+  assert.match(note, /Tool changed sidecar\/pre-compact-hook\.js before final response/);
+  assert.match(note, /transcript as the full-fidelity source/);
   assert.match(note, /sidecar\/stop-hook\.js/);
+  assert.match(note, /sidecar\/pre-compact-hook\.js/);
   assert.match(note, /hooks\/hooks\.json/);
+  assert.equal(fs.existsSync(path.join(codexHome, 'codex-continuity/raw_archive/sessions/2026/07/07/stop-transcript.jsonl')), true);
+});
+
+test('stop hook accepts BOM-prefixed JSON input', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const transcriptPath = writeFile(
+    codexHome,
+    'sessions/2026/07/07/stop-bom-transcript.jsonl',
+    'Stop hook should parse BOM-prefixed input and include transcript tail.\n',
+  );
+
+  const hookPath = path.join(__dirname, 'stop-hook.js');
+  const result = spawnSync(process.execPath, [hookPath], {
+    input: `\uFEFF${JSON.stringify({
+      session_id: '00000000-0000-0000-0000-000000000556',
+      cwd: 'e:/VSCodeSpace/play/codex-continuity',
+      transcript_path: transcriptPath,
+      last_assistant_message: 'Captured stop hook BOM handling for sidecar/stop-hook.js.',
+    })}`,
+    encoding: 'utf8',
+    env: { ...process.env, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.continue, true);
+  assert.equal(output.suppressOutput, true);
+
+  const notesDir = path.join(codexHome, 'memories', 'extensions', 'ad_hoc', 'notes');
+  const noteFiles = fs.readdirSync(notesDir);
+  assert.equal(noteFiles.length, 1);
+  const note = fs.readFileSync(path.join(notesDir, noteFiles[0]), 'utf8');
+  assert.match(note, /BOM-prefixed input/);
+  assert.match(note, /sidecar\/stop-hook\.js/);
 });
 
 test('stop hook fails open on invalid input', () => {
@@ -635,6 +849,8 @@ test('codexContinuityNoteUpdateApply rejects stale update drafts', () => {
     }),
     /Existing note changed since draft was created/,
   );
+});
+
 test('codexContinuitySessionNoteDraft builds a capture note draft, overlap recommendation, and core-memory promotion draft', () => {
   const memoriesRoot = makeTempMemoriesRoot();
   writeFile(memoriesRoot, 'memory_summary.md', '# Memory Summary\n\nExisting project summary.\n');
@@ -665,33 +881,6 @@ test('codexContinuitySessionNoteDraft builds a capture note draft, overlap recom
   assert.equal(draft.overlap.recommendation.action, 'update_existing');
   assert.equal(draft.settling.action, 'write_delta_note');
   assert.equal(draft.settling.targetPath, 'extensions/ad_hoc/notes/2026-07-06T12-00-00-session-note-drafting.md');
-  assert.equal(draft.coreMemoryPromotion.targetPath, 'memory_summary.md');
-  assert.equal(draft.coreMemoryPromotion.action, 'review_update_core_memory');
-  assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Session continuity update/);
-  assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Added session note draft orchestration and overlap checks\./);
-});
-
-test('codexContinuitySettleAdHocNote returns a core-memory promotion draft for stable outcomes', () => {
-  const memoriesRoot = makeTempMemoriesRoot();
-  writeFile(memoriesRoot, 'memory_summary.md', '# Memory Summary\n\nExisting project summary.\n');
-
-  const runtime = createRuntime({ memoriesRoot });
-  const settled = codexContinuitySettleAdHocNote(runtime, {
-    title: 'Fix stop hook capture',
-    type: 'bugfix',
-    cwd: 'e:/VSCodeSpace/play/codex-continuity',
-    paths: ['sidecar/stop-hook.js', 'hooks/hooks.json'],
-    content: 'Fixed Stop hook capture for sidecar/stop-hook.js and hooks/hooks.json so final session outcomes settle reliably.',
-    timestamp: '2026-07-07T12:45:00.000Z',
-  });
-
-  assert.equal(settled.action, 'created_ad_hoc_note');
-  assert.equal(settled.coreMemoryPromotion.targetPath, 'memory_summary.md');
-  assert.equal(settled.coreMemoryPromotion.action, 'review_update_core_memory');
-  assert.match(settled.coreMemoryPromotion.draft.updatedContent, /Fix stop hook capture/);
-  assert.match(settled.coreMemoryPromotion.draft.updatedContent, /sidecar\/stop-hook\.js/);
-});
-
   assert.equal(draft.coreMemoryPromotion.targetPath, 'memory_summary.md');
   assert.equal(draft.coreMemoryPromotion.action, 'review_update_core_memory');
   assert.match(draft.coreMemoryPromotion.draft.updatedContent, /Session continuity update/);

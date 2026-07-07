@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { createRuntime } = require('./runtime');
-const { codexContinuitySessionContext } = require('./session');
+const { codexContinuityRawArchive, codexContinuitySessionContext } = require('./session');
 
 function readStdin() {
   try {
@@ -51,6 +51,14 @@ function formatSessionContext(context) {
   return `Prior session context for this project:\n\n${sections.join('\n\n')}`;
 }
 
+function archiveRawRollouts(runtime) {
+  try {
+    codexContinuityRawArchive(runtime, { limit: 10000 });
+  } catch {
+    // Fail open: continuity backup must never block Codex startup.
+  }
+}
+
 function queryFromInput(input) {
   const cwd = String(input.cwd || '').trim();
   const project = cwd ? path.basename(cwd.replace(/\\/g, '/')) : '';
@@ -69,6 +77,7 @@ async function main() {
     }
 
     const runtime = createRuntime();
+    archiveRawRollouts(runtime);
     const context = codexContinuitySessionContext(runtime, {
       query,
       cwd,
@@ -86,6 +95,7 @@ if (require.main === module) {
   main();
 }
 module.exports = {
+  archiveRawRollouts,
   formatDigestBlock,
   formatSessionContext,
   parseHookInput,

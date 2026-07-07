@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 const { createRuntime } = require('./runtime');
-const { codexContinuitySessionContext } = require('./session');
+const { codexContinuityRawArchive, codexContinuitySessionContext } = require('./session');
 
 function readStdin() {
   try {
@@ -41,6 +41,14 @@ function formatDigestBlock(digest) {
   ].filter(Boolean).join('\n');
 }
 
+function archiveRawRollouts(runtime) {
+  try {
+    codexContinuityRawArchive(runtime, { limit: 10000 });
+  } catch {
+    // Fail open: continuity backup must never block prompt submission.
+  }
+}
+
 function formatSessionContext(context) {
   if (!context.hasContext || !context.digests.length) {
     return '';
@@ -62,6 +70,7 @@ async function main() {
     }
 
     const runtime = createRuntime();
+    archiveRawRollouts(runtime);
     const context = codexContinuitySessionContext(runtime, {
       query: prompt,
       cwd,
@@ -79,6 +88,7 @@ if (require.main === module) {
   main();
 }
 module.exports = {
+  archiveRawRollouts,
   formatDigestBlock,
   formatSessionContext,
   parseHookInput,

@@ -7,7 +7,7 @@ It adds three layers around the existing `~/.codex/memories` workspace:
 
 - structured capture skills for writing high-signal ad-hoc memory notes
 - an MCP sidecar for searching memories, related files, recent decisions, overlap candidates, and prior Codex sessions
-- lifecycle hooks for read-only session context injection and stop-time ad-hoc memory settling
+- lifecycle hooks for automatic raw rollout archiving, session context injection, pre-compact ad-hoc checkpoint capture, and stop-time ad-hoc memory settling
 
 ## Repository layout
 
@@ -20,13 +20,16 @@ codex-continuity/
 │   └── plugin.json              # Plugin manifest
 ├── .mcp.json                    # MCP server registration
 ├── hooks/
-│   └── hooks.json               # SessionStart, UserPromptSubmit, and Stop lifecycle hooks
+│   └── hooks.json               # SessionStart, UserPromptSubmit, PostToolUse, PreCompact, PostCompact, and Stop hooks
 ├── sidecar/                     # Node.js MCP stdio sidecar and hook helpers
 │   ├── server.js                # MCP protocol shell
 │   ├── tools.js                 # Tool registry
 │   ├── session.js               # Codex session search/digest support
 │   ├── session-start-hook.js    # Startup prior-session context hook
-│   ├── user-prompt-submit-hook.js # Prompt-time prior-session context hook
+│   ├── user-prompt-submit-hook.js # Prompt-time context hook
+│   ├── pre-compact-hook.js      # Pre-compaction transcript checkpoint note hook
+│   ├── post-tool-use-hook.js     # Post-tool raw rollout archive hook
+│   ├── post-compact-hook.js      # Post-compaction raw rollout archive hook
 │   ├── stop-hook.js             # Stop-time ad-hoc memory settling hook
 │   ├── index.js                 # Persistent memory index
 │   ├── scoring.js               # Search ranking
@@ -65,6 +68,9 @@ The sidecar exposes tools for:
 - overlap detection before capture
 - reading one memory note
 - prior Codex session search and digest hydration
+- session inventory across active and archived rollout roots
+- session health checks for malformed rollouts, duplicate thread ids, and index mismatches
+- raw rollout archive backup for strict no-loss protection
 - workflow-level prior session context loading
 - session digest to ad-hoc note draft generation
 - reviewed existing-note update drafts
@@ -75,15 +81,19 @@ The sidecar exposes tools for:
 
 ### Session workflow support
 
-`SessionStart` runs a read-only startup hook that loads project-related prior session context from cwd, excludes the current session id, and returns a thin session-context projection through hook `additionalContext`. The hook payload now stays on stable `title` / `summary` / `relatedPaths` fields so Codex's own `additional_context` role handling, deduplication, and truncation remain the host-side source of truth. It is fail-open and never writes memory.
+`SessionStart` runs a read-only startup hook that loads project-related prior session context from cwd, excludes the current session id, automatically archives raw rollout files, and returns a thin session-context projection through hook `additionalContext`. The hook payload now stays on stable `title` / `summary` / `relatedPaths` fields so Codex's own `additional_context` role handling, deduplication, and truncation remain the host-side source of truth. It is fail-open and never writes durable core memory.
 
-`UserPromptSubmit` runs a read-only prompt-time hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, and returns the same thin session-context projection through hook `additionalContext`. The hook is fail-open and never writes memory.
+`UserPromptSubmit` runs a prompt-time hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, automatically archives raw rollout files, and returns the same thin session-context projection through hook `additionalContext`. It is read-only: Codex's own transcript and rollout files remain the full-fidelity source for active-session process facts.
 
-`codex_continuity_session_context` still returns hydrated full digests for workflow tools such as `codex_continuity_session_note_draft`; only the hook injection path is intentionally narrowed.
+`PostToolUse` runs after each tool completes and automatically archives raw rollout files. This is the main "边做边记" backup point for process facts that happen between prompts, compaction, and stop.
 
-`Stop` runs a fail-open settling hook that turns the final assistant message into a structured ad-hoc note update. Its automatic path still writes only under `extensions/ad_hoc/notes/` and updates close ad-hoc notes through hash-protected apply, but settling now also surfaces a reviewable core-memory promotion hint through `systemMessage` when the outcome looks stable enough for durable memory. The hook does not silently edit `MEMORY.md`, `memory_summary.md`, or rollout summaries.
+`PreCompact` runs before Codex replaces active history with a compacted summary. It automatically archives raw rollout files, reads the hook transcript path when available, and writes one standard ad-hoc checkpoint note under `extensions/ad_hoc/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md`, so stock Codex memory consolidation can consume the stage checkpoint while the original transcript/rollout remains the lossless record.
 
-Hook stdin compatibility note: real Codex hook invocations on Windows may prepend a UTF-8 BOM to stdin. `sidecar/session-start-hook.js` and `sidecar/user-prompt-submit-hook.js` therefore strip a leading `\uFEFF` before `JSON.parse`, so hook success does not depend on shell or transport quirks. The corresponding BOM-prefixed regression cases are covered in `sidecar/server.test.js`.
+`PostCompact` runs after successful compaction and automatically archives raw rollout files again, preserving the post-compaction rollout state without injecting archive content into memory.
+
+`Stop` runs a fail-open settling hook that automatically archives raw rollout files, combines the final assistant message with the Codex transcript tail when `transcript_path` is available, then turns that fuller source into a structured ad-hoc note update. Its automatic path writes only under `extensions/ad_hoc/notes/` and updates close ad-hoc notes through hash-protected apply, but settling also surfaces a reviewable core-memory promotion hint through `systemMessage` when the outcome looks stable enough for durable memory. The hook does not silently edit `MEMORY.md`, `memory_summary.md`, or rollout summaries.
+
+Hook stdin compatibility note: real Codex hook invocations on Windows may prepend a UTF-8 BOM to stdin. `sidecar/session-start-hook.js`, `sidecar/user-prompt-submit-hook.js`, `sidecar/post-tool-use-hook.js`, `sidecar/pre-compact-hook.js`, `sidecar/post-compact-hook.js`, and `sidecar/stop-hook.js` therefore strip a leading `\uFEFF` before `JSON.parse`, so hook success does not depend on shell or transport quirks. The corresponding BOM-prefixed regression cases are covered in `sidecar/server.test.js`.
 
 `codex_continuity_core_memory_update_draft` and `codex_continuity_core_memory_update_apply` provide the explicit core-memory correction and promotion path for `MEMORY.md` and `memory_summary.md`. `codex-continuity` now reads those files when building a promotion draft, proposes `updatedContent` automatically for stable session outcomes, and still requires explicit `expectedHash`-guarded apply so durable memory never changes silently.
 
@@ -128,7 +138,7 @@ codex plugin add codex-continuity@codex-continuity-marketplace
 The source repository also exposes the plugin directly by release tag:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.4
+codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.5
 codex plugin add codex-continuity@codex-continuity
 ```
 
@@ -176,19 +186,47 @@ Implemented:
 - project-aware retrieval using cwd path suffix signals
 - memory overlap recommendations
 - Codex session search across session index, prompt history, and rollout files
+- session inventory across `~/.codex/sessions/` and `~/.codex/archived_sessions/`
+- session health checks for malformed rollout files, duplicate thread ids, and session-index mismatches
+- automatic raw rollout archive under `~/.codex/codex-continuity/raw_archive/` for strict no-loss backup, triggered by `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`, and also exposed as `codex_continuity_raw_archive` for diagnostics/backfill
 - session digest generation and hydrated session-search digests
 - workflow-level session context loading
 - read-only `SessionStart` hook for project-level prior-session context injection
-- read-only `UserPromptSubmit` hook for prompt-time prior-session context injection
-- fail-open `Stop` hook for ad-hoc memory settling
+- prompt-time `UserPromptSubmit` hook for read-only prior-session context injection
+- fail-open `PreCompact` hook that reads Codex transcript data and writes a legal ad-hoc checkpoint note before active history is compacted
+- fail-open `Stop` hook that combines the final assistant message with the Codex transcript tail before final ad-hoc memory settling
 - explicit `MEMORY.md` / `memory_summary.md` update flow with review + hash protection
 - reviewed old-note update flow with `codex_continuity_note_update_draft` and hash-protected `codex_continuity_note_update_apply`
 - session digest to ad-hoc note draft generation with overlap, `settling` guidance, and reviewable `coreMemoryPromotion` drafts
-- Stop-hook settling that can surface reviewable core-memory promotion guidance through `systemMessage` without silently writing durable memory
-- lifecycle hook tests for startup context injection, prompt-time context injection, stop-time note settling, fail-open behavior, and BOM-prefixed hook stdin compatibility
+- Stop-hook settling that can include transcript-tail facts, surface reviewable core-memory promotion guidance through `systemMessage`, and avoid silently writing durable memory
+- lifecycle hook tests for startup context injection, prompt-time context injection, pre-compact ad-hoc checkpoint writing, stop-time note settling, fail-open behavior, and BOM-prefixed hook stdin compatibility
 - install/runtime-copy validation for the same hook input contract used by real Codex hook invocations
 - capture/retrieval skills that prefer digest-shaped prior session context
 
-Remaining Codex memory pain points:
+### Session inventory and no-loss hardening
 
-- none in the session/memory continuity mainline; future work should be treated as product tuning, not a missing pain-point fix
+Codex source defines rollout state by directory, not by a plugin-owned marker:
+
+| Codex path | State | Continuity meaning |
+|---|---|---|
+| `~/.codex/sessions/` | active | normal, not archived session rollout source |
+| `~/.codex/archived_sessions/` | archived | archived session rollout source |
+
+Lossless process memory is handled by Codex transcript/rollout files. `codex-continuity` now indexes, checks, archives, summarizes, and writes legal ad-hoc checkpoint notes only at PreCompact / Stop boundaries.
+
+The no-loss hardening layer has three implemented parts:
+
+1. `codex_continuity_session_inventory`
+   - scan both `sessions/` and `archived_sessions/`
+   - return `threadId`, `path`, `archived`, `cwd`, `updatedAt`, `readable`, and `parseable`
+   - treat `sessions/` as active and `archived_sessions/` as archived, matching Codex rollout behavior
+2. `codex_continuity_session_health`
+   - report unreadable files, malformed rollout files, duplicate thread ids, and session-index mismatches
+   - verify recent sessions are searchable through the sidecar
+3. `codex_continuity_raw_archive`
+   - runs automatically from `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`
+   - remains callable as an MCP diagnostics/backfill tool
+   - copy raw rollout files as backup
+   - preserve active/archived state
+   - never inject archive content directly and never write it under `extensions/ad_hoc/notes/`
+   - act as the actual no-loss safety layer when Codex source logs are cleaned up, moved, or damaged

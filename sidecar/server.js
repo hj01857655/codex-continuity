@@ -9,7 +9,14 @@ const {
 } = require('./runtime');
 const { buildIndex } = require('./index');
 const { findOverlapHits, codexContinuityOverlap } = require('./overlap');
-const { codexContinuitySessionContext, codexContinuitySessionDigest, codexContinuitySessionSearch } = require('./session');
+const {
+  codexContinuityRawArchive,
+  codexContinuitySessionContext,
+  codexContinuitySessionDigest,
+  codexContinuitySessionHealth,
+  codexContinuitySessionInventory,
+  codexContinuitySessionSearch,
+} = require('./session');
 const { queryDocuments } = require('./scoring');
 const {
   createToolRegistry,
@@ -164,6 +171,9 @@ module.exports = {
   codexContinuityNoteUpdateApply,
   codexContinuityNoteUpdateDraft,
   codexContinuityOverlap,
+  codexContinuityRawArchive,
+  codexContinuitySessionHealth,
+  codexContinuitySessionInventory,
   codexContinuitySessionContext,
   codexContinuitySessionDigest,
   codexContinuitySessionNoteDraft,

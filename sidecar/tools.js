@@ -8,8 +8,11 @@ const { buildDocument, buildIndex } = require('./index');
 const { queryDocuments } = require('./scoring');
 const { codexContinuityOverlap } = require('./overlap');
 const {
+  codexContinuityRawArchive,
   codexContinuitySessionContext,
   codexContinuitySessionDigest,
+  codexContinuitySessionHealth,
+  codexContinuitySessionInventory,
   codexContinuitySessionSearch,
 } = require('./session');
 const { uniq } = require('./text');
@@ -410,6 +413,12 @@ function codexContinuityNoteUpdateApply(runtime, args = {}) {
   };
 }
 
+function codexAdHocTimestampPrefix(timestamp) {
+  const date = new Date(timestamp);
+  const iso = Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+  return iso.slice(0, 19).replace(/:/g, '-');
+}
+
 function codexContinuityWriteAdHocNote(runtime, args = {}) {
   const title = String(args.title || 'Codex continuity note').trim();
   const content = String(args.content || '').trimEnd();
@@ -418,7 +427,7 @@ function codexContinuityWriteAdHocNote(runtime, args = {}) {
   }
 
   const timestamp = String(args.timestamp || new Date().toISOString()).trim();
-  const safeTimestamp = timestamp.replace(/[:.]/g, '-');
+  const safeTimestamp = codexAdHocTimestampPrefix(timestamp);
   const fileSlug = slugify(args.slug || title);
   const notesDir = path.join(runtime.memoriesRoot, 'extensions', 'ad_hoc', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
@@ -624,6 +633,40 @@ function createToolRegistry(runtime) {
         additionalProperties: false,
       },
       run: (args) => codexContinuityRelatedFiles(runtime, args),
+    },
+    codex_continuity_session_inventory: {
+      description: 'Inventory Codex rollout files under sessions/ and archived_sessions/, preserving active versus archived state.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max rollout files to return (1-1000).' },
+          include_absolute_paths: { type: 'boolean', description: 'Include absolute rollout paths when true.' },
+        },
+        additionalProperties: false,
+      },
+      run: (args) => codexContinuitySessionInventory(runtime, args),
+    },
+    codex_continuity_session_health: {
+      description: 'Check Codex rollout health across sessions/ and archived_sessions/: malformed files, duplicate thread ids, and session-index mismatches.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max issue samples per category (1-100).' },
+        },
+        additionalProperties: false,
+      },
+      run: (args) => codexContinuitySessionHealth(runtime, args),
+    },
+    codex_continuity_raw_archive: {
+      description: 'Archive raw Codex rollout files as no-loss backup without injecting them into memory or ad-hoc notes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max rollout files to archive (1-10000).' },
+        },
+        additionalProperties: false,
+      },
+      run: (args) => codexContinuityRawArchive(runtime, args),
     },
     codex_continuity_session_context: {
       description: 'Load the most relevant prior Codex session context for the current task, with hydrated digests.',
@@ -839,6 +882,9 @@ module.exports = {
   codexContinuityRecentDecisions,
   codexContinuityRelatedFiles,
   codexContinuitySearch,
+  codexContinuityRawArchive,
+  codexContinuitySessionHealth,
+  codexContinuitySessionInventory,
   codexContinuitySessionContext,
   codexContinuitySessionDigest,
   codexContinuitySessionNoteDraft,

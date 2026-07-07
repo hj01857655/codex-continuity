@@ -200,6 +200,223 @@ function collectSessions(runtime) {
   return sessions;
 }
 
+function rolloutRoots(runtime) {
+  return [
+    { root: path.join(runtime.codexHome, 'sessions'), archived: false, rootName: 'sessions' },
+    { root: path.join(runtime.codexHome, 'archived_sessions'), archived: true, rootName: 'archived_sessions' },
+  ];
+}
+
+function parseJsonlFile(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const records = [];
+    const errors = [];
+    raw.split(/\r?\n/).forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      try {
+        records.push(JSON.parse(trimmed));
+      } catch (error) {
+        errors.push({ line: index + 1, message: String(error.message || error) });
+      }
+    });
+    return { readable: true, records, errors, raw };
+  } catch (error) {
+    return { readable: false, records: [], errors: [{ line: null, message: String(error.message || error) }], raw: '' };
+  }
+}
+
+function sessionIdentityFromRecords(records) {
+  let threadId = null;
+  let cwd = null;
+  for (const record of records) {
+    threadId = threadId || record.id || record.thread_id || record.threadId || record.session_id || record.sessionId || record.meta?.id || record.metadata?.id;
+    cwd = cwd || record.cwd || record.metadata?.cwd || record.meta?.cwd;
+  }
+  return {
+    threadId: threadId ? String(threadId) : null,
+    cwd: cwd ? String(cwd) : null,
+  };
+}
+
+function relativeCodexPath(runtime, filePath) {
+  return path.relative(runtime.codexHome, filePath).replace(/\\/g, '/');
+}
+
+function rolloutInventoryEntries(runtime) {
+  const entries = [];
+  for (const { root, archived, rootName } of rolloutRoots(runtime)) {
+    for (const filePath of listJsonlFiles(root)) {
+      const stat = safeStat(filePath);
+      const parsed = parseJsonlFile(filePath);
+      const identity = sessionIdentityFromRecords(parsed.records);
+      entries.push({
+        threadId: identity.threadId,
+        path: relativeCodexPath(runtime, filePath),
+        absolutePath: filePath,
+        root: rootName,
+        archived,
+        cwd: identity.cwd,
+        updatedAt: stat?.mtime ? stat.mtime.toISOString() : null,
+        sizeBytes: stat?.size || 0,
+        readable: parsed.readable,
+        parseable: parsed.readable && parsed.errors.length === 0 && parsed.records.length > 0,
+        recordCount: parsed.records.length,
+        parseErrors: parsed.errors,
+      });
+    }
+  }
+  return entries.sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')));
+}
+
+function codexContinuitySessionInventory(runtime, args = {}) {
+  const limit = Math.max(1, Math.min(Number(args.limit) || 100, 1000));
+  const includeAbsolutePaths = args.include_absolute_paths === true || args.includeAbsolutePaths === true;
+  const entries = rolloutInventoryEntries(runtime).slice(0, limit).map((entry) => {
+    const item = { ...entry };
+    if (!includeAbsolutePaths) {
+      delete item.absolutePath;
+    }
+    return item;
+  });
+  const counts = entries.reduce((acc, entry) => {
+    acc.total += 1;
+    acc[entry.archived ? 'archived' : 'active'] += 1;
+    if (!entry.readable) acc.unreadable += 1;
+    if (!entry.parseable) acc.malformed += 1;
+    return acc;
+  }, { total: 0, active: 0, archived: 0, unreadable: 0, malformed: 0 });
+
+  return {
+    codexHome: runtime.codexHome,
+    roots: {
+      active: 'sessions',
+      archived: 'archived_sessions',
+    },
+    counts,
+    entries,
+  };
+}
+
+function sessionIndexIds(runtime) {
+  const ids = new Set();
+  for (const entry of readJsonl(path.join(runtime.codexHome, 'session_index.jsonl'))) {
+    const id = entry.id || entry.thread_id || entry.threadId;
+    if (id) ids.add(String(id));
+  }
+  return ids;
+}
+
+function duplicateValues(values) {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const value of values.filter(Boolean)) {
+    if (seen.has(value)) duplicates.add(value);
+    seen.add(value);
+  }
+  return [...duplicates].sort();
+}
+
+function codexContinuitySessionHealth(runtime, args = {}) {
+  const limit = Math.max(1, Math.min(Number(args.limit) || 20, 100));
+  const entries = rolloutInventoryEntries(runtime);
+  const indexIds = sessionIndexIds(runtime);
+  const duplicateThreadIds = duplicateValues(entries.map((entry) => entry.threadId));
+  const unreadable = entries.filter((entry) => !entry.readable);
+  const malformed = entries.filter((entry) => entry.readable && !entry.parseable);
+  const missingSessionIndex = entries.filter((entry) => entry.threadId && !indexIds.has(entry.threadId));
+  const indexedWithoutRollout = [...indexIds].filter((id) => !entries.some((entry) => entry.threadId === id)).sort();
+  const issues = [];
+
+  if (unreadable.length) issues.push({ type: 'unreadable_rollout', count: unreadable.length, samples: unreadable.slice(0, limit).map((entry) => entry.path) });
+  if (malformed.length) issues.push({ type: 'malformed_rollout', count: malformed.length, samples: malformed.slice(0, limit).map((entry) => entry.path) });
+  if (duplicateThreadIds.length) issues.push({ type: 'duplicate_thread_id', count: duplicateThreadIds.length, samples: duplicateThreadIds.slice(0, limit) });
+  if (missingSessionIndex.length) issues.push({ type: 'missing_session_index_entry', count: missingSessionIndex.length, samples: missingSessionIndex.slice(0, limit).map((entry) => ({ threadId: entry.threadId, path: entry.path })) });
+  if (indexedWithoutRollout.length) issues.push({ type: 'session_index_without_rollout', count: indexedWithoutRollout.length, samples: indexedWithoutRollout.slice(0, limit) });
+
+  return {
+    status: issues.length ? 'warning' : 'ok',
+    checkedAt: new Date().toISOString(),
+    counts: {
+      total: entries.length,
+      active: entries.filter((entry) => !entry.archived).length,
+      archived: entries.filter((entry) => entry.archived).length,
+      unreadable: unreadable.length,
+      malformed: malformed.length,
+      duplicateThreadIds: duplicateThreadIds.length,
+      missingSessionIndex: missingSessionIndex.length,
+      indexedWithoutRollout: indexedWithoutRollout.length,
+    },
+    issues,
+  };
+}
+
+function archiveRoot(runtime) {
+  return path.join(runtime.codexHome, 'codex-continuity', 'raw_archive');
+}
+
+function copyIfChanged(source, target) {
+  const sourceBytes = fs.readFileSync(source);
+  const existing = safeStat(target)?.isFile() ? fs.readFileSync(target) : null;
+  if (existing && Buffer.compare(sourceBytes, existing) === 0) {
+    return 'unchanged';
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, sourceBytes);
+  return existing ? 'updated' : 'created';
+}
+
+function codexContinuityRawArchive(runtime, args = {}) {
+  const limit = Math.max(1, Math.min(Number(args.limit) || 1000, 10000));
+  const entries = rolloutInventoryEntries(runtime).slice(0, limit);
+  const root = archiveRoot(runtime);
+  const archivedAt = new Date().toISOString();
+  const files = [];
+  let created = 0;
+  let updated = 0;
+  let unchanged = 0;
+  let failed = 0;
+
+  for (const entry of entries) {
+    const target = path.join(root, entry.path);
+    try {
+      const action = copyIfChanged(entry.absolutePath, target);
+      if (action === 'created') created += 1;
+      if (action === 'updated') updated += 1;
+      if (action === 'unchanged') unchanged += 1;
+      files.push({
+        threadId: entry.threadId,
+        sourcePath: entry.path,
+        archivePath: path.relative(runtime.codexHome, target).replace(/\\/g, '/'),
+        archived: entry.archived,
+        action,
+      });
+    } catch (error) {
+      failed += 1;
+      files.push({
+        threadId: entry.threadId,
+        sourcePath: entry.path,
+        archived: entry.archived,
+        action: 'failed',
+        error: String(error.message || error),
+      });
+    }
+  }
+
+  const manifest = {
+    archivedAt,
+    codexHome: runtime.codexHome,
+    archiveRoot: path.relative(runtime.codexHome, root).replace(/\\/g, '/'),
+    counts: { scanned: entries.length, created, updated, unchanged, failed },
+    files,
+  };
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+  return manifest;
+}
+
 function arrayFromOptional(value) {
   if (value == null) {
     return [];
@@ -313,6 +530,9 @@ function codexContinuitySessionDigest(runtime, args = {}) {
 }
 
 module.exports = {
+  codexContinuityRawArchive,
+  codexContinuitySessionHealth,
+  codexContinuitySessionInventory,
   codexContinuitySessionContext,
   codexContinuitySessionDigest,
   codexContinuitySessionSearch,
