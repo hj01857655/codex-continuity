@@ -80,15 +80,15 @@ The sidecar exposes tools for:
 
 `codex_continuity_session_context` still returns hydrated full digests for workflow tools such as `codex_continuity_session_note_draft`; only the hook injection path is intentionally narrowed.
 
-`Stop` runs a fail-open settling hook that turns the final assistant message into a structured ad-hoc note update. Its automatic path writes only under `extensions/ad_hoc/notes/` and updates close ad-hoc notes through hash-protected apply; it does not silently edit `MEMORY.md`, `memory_summary.md`, or rollout summaries.
+`Stop` runs a fail-open settling hook that turns the final assistant message into a structured ad-hoc note update. Its automatic path still writes only under `extensions/ad_hoc/notes/` and updates close ad-hoc notes through hash-protected apply, but settling now also surfaces a reviewable core-memory promotion hint through `systemMessage` when the outcome looks stable enough for durable memory. The hook does not silently edit `MEMORY.md`, `memory_summary.md`, or rollout summaries.
 
 Hook stdin compatibility note: real Codex hook invocations on Windows may prepend a UTF-8 BOM to stdin. `sidecar/session-start-hook.js` and `sidecar/user-prompt-submit-hook.js` therefore strip a leading `\uFEFF` before `JSON.parse`, so hook success does not depend on shell or transport quirks. The corresponding BOM-prefixed regression cases are covered in `sidecar/server.test.js`.
 
-`codex_continuity_core_memory_update_draft` and `codex_continuity_core_memory_update_apply` provide the explicit core-memory correction path for `MEMORY.md` and `memory_summary.md`. Use them when those files are wrong or stale and the update is intentional; the apply step requires `expectedHash` to avoid overwriting concurrent Codex consolidation changes.
+`codex_continuity_core_memory_update_draft` and `codex_continuity_core_memory_update_apply` provide the explicit core-memory correction and promotion path for `MEMORY.md` and `memory_summary.md`. `codex-continuity` now reads those files when building a promotion draft, proposes `updatedContent` automatically for stable session outcomes, and still requires explicit `expectedHash`-guarded apply so durable memory never changes silently.
 
 `codex_continuity_session_context` is the preferred workflow-level loader for prior Codex session context. It wraps session search with hydrated digests and returns `hasContext`, `primary`, `hits`, and `digests` so skills do not have to manually chain search and digest calls.
 
-`codex_continuity_session_note_draft` turns one digest into an ad-hoc memory note draft, runs overlap detection, and returns `settling` guidance for whether to create a new note, update an existing note, or review a match first. It does not write durable memory directly; stock Codex ad-hoc notes and Phase 2 consolidation remain the long-term memory boundary.
+`codex_continuity_session_note_draft` turns one digest into an ad-hoc memory note draft, runs overlap detection, returns `settling` guidance for whether to create a new note, update an existing note, or review a match first, and now also returns `coreMemoryPromotion` when the digest looks stable enough for `MEMORY.md` or `memory_summary.md`. Durable memory apply remains explicit; stock Codex ad-hoc notes and Phase 2 consolidation still own the final write boundary.
 
 `codex_continuity_note_update_draft` and `codex_continuity_note_update_apply` provide the reviewed old-note merge path. The draft tool reads an existing `extensions/ad_hoc/notes/*.md` note and returns full `updatedContent` plus an `expectedHash`; the apply tool writes the reviewed content only when the existing note hash still matches, preventing stale overwrites.
 
@@ -117,14 +117,14 @@ This repository can also act as its own Codex marketplace source:
 /plugin install codex-continuity@codex-continuity
 ```
 
-For non-interactive CLI installation, use the verified Codex commands pinned to the `v0.1.2` release tag:
+For non-interactive CLI installation, add the marketplace from its tracked branch, then install the current plugin version exposed by that marketplace:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity-marketplace --ref v0.1.2
+codex plugin marketplace add hj01857655/codex-continuity-marketplace --ref main
 codex plugin add codex-continuity@codex-continuity-marketplace
 ```
 
-The source repository also exposes the same release tag directly:
+The source repository also exposes the plugin directly by release tag:
 
 ```powershell
 codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.2
