@@ -33,28 +33,22 @@ function success(additionalContext) {
   return output;
 }
 
+function formatDigestBlock(digest) {
+  const paths = (digest.relatedPaths || []).slice(0, 4).join(', ') || 'none';
+  return [
+    `- title: ${digest.title || digest.threadId || 'unknown'}`,
+    digest.summary ? `- summary: ${digest.summary}` : null,
+    `- related_paths: ${paths}`,
+  ].filter(Boolean).join('\n');
+}
+
 function formatSessionContext(context) {
   if (!context.hasContext || !context.digests.length) {
     return '';
   }
 
-  const sections = context.digests.slice(0, 2).map((digest, index) => {
-    const paths = (digest.relatedPaths || []).slice(0, 6).map((item) => `- ${item}`).join('\n') || '- No related paths identified.';
-    const sources = (digest.sources || []).join(', ') || 'unknown';
-    return [
-      `## Prior Codex Session ${index + 1}: ${digest.title || digest.threadId}`,
-      digest.threadId ? `- thread: ${digest.threadId}` : null,
-      digest.cwd ? `- cwd: ${digest.cwd}` : null,
-      `- sources: ${sources}`,
-      '',
-      digest.summary || 'No focused summary available.',
-      '',
-      'Related paths:',
-      paths,
-    ].filter((line) => line != null).join('\n');
-  });
-
-  return `Relevant prior Codex session context for this project:\n\n${sections.join('\n\n')}`;
+  const sections = context.digests.slice(0, 2).map(formatDigestBlock);
+  return `Prior session context for this project:\n\n${sections.join('\n\n')}`;
 }
 
 function queryFromInput(input) {
@@ -80,6 +74,7 @@ async function main() {
       cwd,
       limit: 2,
       exclude_thread_id: sessionId,
+      context_mode: 'hook',
     });
     process.stdout.write(JSON.stringify(success(formatSessionContext(context))) + '\n');
   } catch {
@@ -91,6 +86,7 @@ if (require.main === module) {
   main();
 }
 module.exports = {
+  formatDigestBlock,
   formatSessionContext,
   parseHookInput,
   queryFromInput,

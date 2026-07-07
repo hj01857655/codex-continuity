@@ -166,6 +166,15 @@ function serializeSessionDigest(session, query) {
   };
 }
 
+function serializeHookContextDigest(digest) {
+  return {
+    threadId: digest.threadId,
+    title: digest.title,
+    summary: digest.summary,
+    relatedPaths: digest.relatedPaths,
+  };
+}
+
 function serializeSessionHit(session, score, queryTokens, options = {}) {
   const combined = [session.name, session.cwd, ...session.historyTexts, ...session.rolloutTexts].filter(Boolean).join('\n');
   const hit = {
@@ -243,13 +252,18 @@ function codexContinuitySessionContext(runtime, args = {}) {
     throw new Error('`query` is required');
   }
 
+  const contextMode = String(args.context_mode || args.contextMode || '').trim();
   const result = codexContinuitySessionSearch(runtime, {
     ...args,
     query,
     include_digest: true,
   });
   const hits = result.hits.filter((hit) => hit.digest);
-  const digests = hits.map((hit) => hit.digest);
+  const digests = hits.map((hit) => (
+    contextMode === 'hook'
+      ? serializeHookContextDigest(hit.digest)
+      : hit.digest
+  ));
 
   return {
     query: result.query,
@@ -302,4 +316,5 @@ module.exports = {
   codexContinuitySessionContext,
   codexContinuitySessionDigest,
   codexContinuitySessionSearch,
+  serializeHookContextDigest,
 };

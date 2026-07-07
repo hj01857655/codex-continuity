@@ -286,6 +286,40 @@ test('codexContinuitySessionContext returns hydrated prior session context for t
   assert.equal(context.digests[0].relatedPaths.includes('sidecar/session.js'), true);
 });
 
+test('codexContinuitySessionContext returns thin hook projection for hook mode', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
+  const threadId = '00000000-0000-0000-0000-000000000abd';
+
+  writeJsonl(codexHome, 'session_index.jsonl', [
+    { id: threadId, thread_name: 'Thin hook context', updated_at: '2026-07-06T13:30:00Z' },
+  ]);
+  writeJsonl(codexHome, 'history.jsonl', [
+    { session_id: threadId, ts: 1783344600, text: 'hook mode should reuse thin session context projection' },
+  ]);
+  writeJsonl(codexHome, 'sessions/2026/07/06/hook-thin.jsonl', [
+    { type: 'session_meta', id: threadId, cwd: 'e:/VSCodeSpace/play/codex-continuity' },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Hook projection should keep only stable session context fields.' }] } },
+    { type: 'response_item', item: { content: [{ type: 'output_text', text: 'Changed sidecar/session.js and sidecar/session-start-hook.js to shrink hook payloads.' }] } },
+  ]);
+
+  const runtime = createRuntime({ codexHome, memoriesRoot: path.join(codexHome, 'memories') });
+  const context = codexContinuitySessionContext(runtime, {
+    query: 'thin hook session context projection',
+    cwd: 'e:/VSCodeSpace/play/codex-continuity',
+    limit: 3,
+    context_mode: 'hook',
+  });
+
+  assert.equal(context.primary.threadId, threadId);
+  assert.equal(context.primary.digest.project, 'codex-continuity');
+  assert.deepEqual(context.digests[0], {
+    threadId,
+    title: 'Thin hook context',
+    summary: 'Hook projection should keep only stable session context fields.',
+    relatedPaths: ['sidecar/session.js', 'sidecar/session-start-hook.js'],
+  });
+});
+
 test('session start hook emits read-only prior session context and excludes the current thread', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-test-'));
   const previousThreadId = '00000000-0000-0000-0000-000000000333';
@@ -323,7 +357,9 @@ test('session start hook emits read-only prior session context and excludes the 
   assert.equal(output.continue, true);
   assert.equal(output.suppressOutput, true);
   assert.equal(output.hookSpecificOutput.hookEventName, 'SessionStart');
-  assert.match(output.hookSpecificOutput.additionalContext, /Prior startup context/);
+  assert.match(output.hookSpecificOutput.additionalContext, /^Prior session context for this project:/);
+  assert.match(output.hookSpecificOutput.additionalContext, /- title: Prior startup context/);
+  assert.match(output.hookSpecificOutput.additionalContext, /- summary: Prior startup decision: SessionStart should preload read-only context\./);
   assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /Current startup context/);
 });
 
@@ -365,8 +401,9 @@ test('user prompt submit hook emits read-only prior session context and excludes
   assert.equal(output.continue, true);
   assert.equal(output.suppressOutput, true);
   assert.equal(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
-  assert.match(output.hookSpecificOutput.additionalContext, /Prior prompt context/);
-  assert.match(output.hookSpecificOutput.additionalContext, /additionalContext/);
+  assert.match(output.hookSpecificOutput.additionalContext, /^Prior session context for this prompt:/);
+  assert.match(output.hookSpecificOutput.additionalContext, /- title: Prior prompt context/);
+  assert.match(output.hookSpecificOutput.additionalContext, /- summary: Prior decision: UserPromptSubmit hook stays read-only and uses additionalContext\./);
   assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /Current prompt context/);
 });
 
@@ -397,7 +434,8 @@ test('session start hook accepts BOM-prefixed JSON input', () => {
   assert.equal(output.continue, true);
   assert.equal(output.suppressOutput, true);
   assert.equal(output.hookSpecificOutput.hookEventName, 'SessionStart');
-  assert.match(output.hookSpecificOutput.additionalContext, /Prior startup context/);
+  assert.match(output.hookSpecificOutput.additionalContext, /^Prior session context for this project:/);
+  assert.match(output.hookSpecificOutput.additionalContext, /- title: Prior startup context/);
 });
 
 test('user prompt submit hook accepts BOM-prefixed JSON input', () => {
@@ -427,7 +465,7 @@ test('user prompt submit hook accepts BOM-prefixed JSON input', () => {
   assert.equal(output.continue, true);
   assert.equal(output.suppressOutput, true);
   assert.equal(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
-  assert.match(output.hookSpecificOutput.additionalContext, /Prior prompt context/);
+  assert.match(output.hookSpecificOutput.additionalContext, /- title: Prior prompt context/);
 });
 
 test('user prompt submit hook fails open on invalid input', () => {

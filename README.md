@@ -74,11 +74,15 @@ The sidecar exposes tools for:
 
 ### Session workflow support
 
-`SessionStart` runs a read-only startup hook that loads project-related prior session context from cwd, excludes the current session id, and returns digest text through hook `additionalContext`. It is fail-open and never writes memory.
+`SessionStart` runs a read-only startup hook that loads project-related prior session context from cwd, excludes the current session id, and returns a thin session-context projection through hook `additionalContext`. The hook payload now stays on stable `title` / `summary` / `relatedPaths` fields so Codex's own `additional_context` role handling, deduplication, and truncation remain the host-side source of truth. It is fail-open and never writes memory.
 
-`UserPromptSubmit` runs a read-only prompt-time hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, and returns relevant digest text through hook `additionalContext`. The hook is fail-open and never writes memory.
+`UserPromptSubmit` runs a read-only prompt-time hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, and returns the same thin session-context projection through hook `additionalContext`. The hook is fail-open and never writes memory.
+
+`codex_continuity_session_context` still returns hydrated full digests for workflow tools such as `codex_continuity_session_note_draft`; only the hook injection path is intentionally narrowed.
 
 `Stop` runs a fail-open settling hook that turns the final assistant message into a structured ad-hoc note update. Its automatic path writes only under `extensions/ad_hoc/notes/` and updates close ad-hoc notes through hash-protected apply; it does not silently edit `MEMORY.md`, `memory_summary.md`, or rollout summaries.
+
+Hook stdin compatibility note: real Codex hook invocations on Windows may prepend a UTF-8 BOM to stdin. `sidecar/session-start-hook.js` and `sidecar/user-prompt-submit-hook.js` therefore strip a leading `\uFEFF` before `JSON.parse`, so hook success does not depend on shell or transport quirks. The corresponding BOM-prefixed regression cases are covered in `sidecar/server.test.js`.
 
 `codex_continuity_core_memory_update_draft` and `codex_continuity_core_memory_update_apply` provide the explicit core-memory correction path for `MEMORY.md` and `memory_summary.md`. Use them when those files are wrong or stale and the update is intentional; the apply step requires `expectedHash` to avoid overwriting concurrent Codex consolidation changes.
 
@@ -172,7 +176,8 @@ Implemented:
 - explicit `MEMORY.md` / `memory_summary.md` update flow with review + hash protection
 - reviewed old-note update flow with `codex_continuity_note_update_draft` and hash-protected `codex_continuity_note_update_apply`
 - session digest to ad-hoc note draft generation with overlap and `settling` guidance
-- lifecycle hook tests for startup context injection, prompt-time context injection, stop-time note settling, and fail-open behavior
+- lifecycle hook tests for startup context injection, prompt-time context injection, stop-time note settling, fail-open behavior, and BOM-prefixed hook stdin compatibility
+- install/runtime-copy validation for the same hook input contract used by real Codex hook invocations
 - capture/retrieval skills that prefer digest-shaped prior session context
 
 Remaining Codex memory pain points:
