@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { createRuntime } = require('./runtime');
-const { codexContinuityRawArchive, codexContinuitySessionContext, codexContinuityWriteHealthSnapshot } = require('./session');
+const { codexContinuitySessionContext, codexContinuityWriteHookHealthMarker } = require('./session');
 
 function readStdin() {
   try {
@@ -51,12 +51,11 @@ function formatSessionContext(context) {
   return `Prior session context for this project:\n\n${sections.join('\n\n')}`;
 }
 
-function archiveRawRollouts(runtime) {
+function writeHookHealthMarker(runtime) {
   try {
-    codexContinuityRawArchive(runtime, { limit: 10000 });
-    codexContinuityWriteHealthSnapshot(runtime, { eventName: 'SessionStart' });
+    codexContinuityWriteHookHealthMarker(runtime, { eventName: 'SessionStart' });
   } catch {
-    // Fail open: continuity backup must never block Codex startup.
+    // Fail open: observability must never block Codex startup.
   }
 }
 
@@ -78,13 +77,14 @@ async function main() {
     }
 
     const runtime = createRuntime();
-    archiveRawRollouts(runtime);
+    writeHookHealthMarker(runtime);
     const context = codexContinuitySessionContext(runtime, {
       query,
       cwd,
       limit: 2,
       exclude_thread_id: sessionId,
       context_mode: 'hook',
+      include_rollouts: false,
     });
     process.stdout.write(JSON.stringify(success(formatSessionContext(context))) + '\n');
   } catch {
@@ -96,7 +96,7 @@ if (require.main === module) {
   main();
 }
 module.exports = {
-  archiveRawRollouts,
+  writeHookHealthMarker,
   formatDigestBlock,
   formatSessionContext,
   parseHookInput,

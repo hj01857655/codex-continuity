@@ -192,11 +192,13 @@ function serializeSessionHit(session, score, queryTokens, options = {}) {
   return hit;
 }
 
-function collectSessions(runtime) {
+function collectSessions(runtime, options = {}) {
   const sessions = new Map();
   ingestSessionIndex(runtime, sessions);
   ingestHistory(runtime, sessions);
-  ingestRollouts(runtime, sessions);
+  if (options.includeRollouts !== false) {
+    ingestRollouts(runtime, sessions);
+  }
   return sessions;
 }
 
@@ -354,11 +356,11 @@ function pluginRuntimeInfo(runtime) {
   };
 }
 
-function archiveObservability(runtime) {
+function archiveObservability(runtime, options = {}) {
   const root = archiveRoot(runtime);
   const manifestPath = path.join(root, 'manifest.json');
   const manifest = readJsonFile(manifestPath);
-  const latestArchive = newestFile(listJsonlFiles(root));
+  const latestArchive = options.includeLatestFile === false ? null : newestFile(listJsonlFiles(root));
   return {
     archiveRoot: path.relative(runtime.codexHome, root).replace(/\\/g, '/'),
     manifestPath: safeStat(manifestPath)?.isFile() ? path.relative(runtime.codexHome, manifestPath).replace(/\\/g, '/') : null,
@@ -450,6 +452,29 @@ function copyIfChanged(source, target) {
   return existing ? 'updated' : 'created';
 }
 
+function codexContinuityWriteHookHealthMarker(runtime, args = {}) {
+  const target = path.join(runtime.codexHome, 'codex-continuity', 'health.json');
+  const snapshot = {
+    status: 'hook-marker',
+    checkedAt: new Date().toISOString(),
+    eventName: args.eventName || args.event_name || null,
+    writtenAt: new Date().toISOString(),
+    runtime: pluginRuntimeInfo(runtime),
+    observability: {
+      archive: archiveObservability(runtime, { includeLatestFile: false }),
+      checkpoint: {
+        notesDir: 'extensions/ad_hoc/notes',
+        latestPreCompactCheckpoint: null,
+      },
+    },
+    counts: null,
+    issues: [],
+  };
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+  return snapshot;
+}
+
 function codexContinuityWriteHealthSnapshot(runtime, args = {}) {
   const snapshot = {
     ...codexContinuitySessionHealth(runtime, args),
@@ -527,6 +552,7 @@ function codexContinuitySessionSearch(runtime, args = {}) {
   const limit = Math.max(1, Math.min(Number(args.limit) || 5, 50));
   const cwd = String(args.cwd || '').trim();
   const includeDigest = args.include_digest === true || args.includeDigest === true;
+  const includeRollouts = args.include_rollouts !== false && args.includeRollouts !== false;
   const excludedThreadIds = new Set(
     [
       args.exclude_thread_id,
@@ -540,7 +566,7 @@ function codexContinuitySessionSearch(runtime, args = {}) {
   const queryTokens = uniq(tokenize(query));
   const cwdToken = cwd ? basenameFromAnyPath(cwd) : '';
   const cwdTokens = pathSignalTokens(cwd).filter((token) => token !== cwdToken);
-  const sessions = collectSessions(runtime);
+  const sessions = collectSessions(runtime, { includeRollouts });
 
   const hits = [...sessions.values()]
     .filter((session) => !excludedThreadIds.has(session.threadId))
@@ -625,6 +651,7 @@ function codexContinuitySessionDigest(runtime, args = {}) {
 }
 
 module.exports = {
+  codexContinuityWriteHookHealthMarker,
   codexContinuityWriteHealthSnapshot,
   codexContinuityRawArchive,
   codexContinuitySessionHealth,

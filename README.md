@@ -81,9 +81,9 @@ The sidecar exposes tools for:
 
 ### Session workflow support
 
-`SessionStart` runs a read-only startup hook that loads project-related prior session context from cwd, excludes the current session id, automatically archives raw rollout files, and returns a thin session-context projection through hook `additionalContext`. The hook payload now stays on stable `title` / `summary` / `relatedPaths` fields so Codex's own `additional_context` role handling, deduplication, and truncation remain the host-side source of truth. It is fail-open and never writes durable core memory.
+`SessionStart` runs a read-only startup hook that loads project-related prior session context from cwd, excludes the current session id, writes a lightweight `health.json` marker, and returns a thin session-context projection through hook `additionalContext`. To stay inside Codex's short startup hook budget, it uses lightweight session index/history lookup and does not run full raw archive scans or hydrate every rollout. The hook payload stays on stable `title` / `summary` / `relatedPaths` fields so Codex's own `additional_context` role handling, deduplication, and truncation remain the host-side source of truth. It is fail-open and never writes durable core memory.
 
-`UserPromptSubmit` runs a prompt-time hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, automatically archives raw rollout files, and returns the same thin session-context projection through hook `additionalContext`. It is read-only: Codex's own transcript and rollout files remain the full-fidelity source for active-session process facts.
+`UserPromptSubmit` runs a prompt-time hook that looks up related prior Codex sessions from the current prompt and cwd, excludes the current session id, writes a lightweight `health.json` marker, and returns the same thin session-context projection through hook `additionalContext`. It stays read-only and avoids full raw archive scans in the 5-second prompt-submit path; Codex's own transcript and rollout files remain the full-fidelity source for active-session process facts.
 
 `PostToolUse` runs after each tool completes and automatically archives raw rollout files. This is the main "边做边记" backup point for process facts that happen between prompts, compaction, and stop.
 
@@ -138,7 +138,7 @@ codex plugin add codex-continuity@codex-continuity-marketplace
 The source repository also exposes the plugin directly by release tag:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.6
+codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.7
 codex plugin add codex-continuity@codex-continuity
 ```
 
@@ -188,11 +188,11 @@ Implemented:
 - Codex session search across session index, prompt history, and rollout files
 - session inventory across `~/.codex/sessions/` and `~/.codex/archived_sessions/`
 - session health checks for malformed rollout files, duplicate thread ids, session-index mismatches, current server/runtime source, latest raw archive, latest pre-compact checkpoint evidence, and automatically refreshed `~/.codex/codex-continuity/health.json` snapshots
-- automatic raw rollout archive under `~/.codex/codex-continuity/raw_archive/` for strict no-loss backup, triggered by `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`, and also exposed as `codex_continuity_raw_archive` for diagnostics/backfill
+- automatic raw rollout archive under `~/.codex/codex-continuity/raw_archive/` for strict no-loss backup, triggered by `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`, and also exposed as `codex_continuity_raw_archive` for diagnostics/backfill
 - session digest generation and hydrated session-search digests
 - workflow-level session context loading
-- read-only `SessionStart` hook for project-level prior-session context injection
-- prompt-time `UserPromptSubmit` hook for read-only prior-session context injection
+- read-only `SessionStart` hook for project-level prior-session context injection using lightweight index/history lookup plus a `health.json` marker
+- prompt-time `UserPromptSubmit` hook for read-only prior-session context injection using lightweight index/history lookup plus a `health.json` marker
 - fail-open `PreCompact` hook that reads Codex transcript data and writes a legal ad-hoc checkpoint note before active history is compacted
 - fail-open `Stop` hook that combines the final assistant message with the Codex transcript tail before final ad-hoc memory settling
 - explicit `MEMORY.md` / `memory_summary.md` update flow with review + hash protection
@@ -227,7 +227,7 @@ The no-loss hardening layer has three implemented parts:
    - read the same observability shape that hooks refresh into `~/.codex/codex-continuity/health.json` after automatic archive runs
    - remain callable as an MCP diagnostics/smoke-check tool when manual verification is needed
 3. `codex_continuity_raw_archive`
-   - runs automatically from `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`
+   - runs automatically from `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`; `SessionStart` / `UserPromptSubmit` intentionally stay lightweight and do not run full archive scans
    - refreshes `~/.codex/codex-continuity/health.json` from those automatic hook runs
    - remains callable as an MCP diagnostics/backfill tool
    - copy raw rollout files as backup
