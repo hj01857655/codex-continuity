@@ -117,11 +117,18 @@ This repository can also act as its own Codex marketplace source:
 /plugin install codex-continuity@codex-continuity
 ```
 
-For non-interactive CLI installation, use the verified Codex commands:
+For non-interactive CLI installation, use the verified Codex commands pinned to the `v0.1.1` release tag:
 
 ```powershell
-codex plugin marketplace add hj01857655/codex-continuity-marketplace --ref main
+codex plugin marketplace add hj01857655/codex-continuity-marketplace --ref v0.1.1
 codex plugin add codex-continuity@codex-continuity-marketplace
+```
+
+The source repository also exposes the same release tag directly:
+
+```powershell
+codex plugin marketplace add hj01857655/codex-continuity --ref v0.1.1
+codex plugin add codex-continuity@codex-continuity
 ```
 
 ## Development workflow
